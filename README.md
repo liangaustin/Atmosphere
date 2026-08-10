@@ -1,2 +1,2 @@
-# -Atmosphere
+# Atmosphere
 N/A
