@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+# macOS
+.DS_Store
+
+# Arduino build 产物
+*.elf
+*.hex
