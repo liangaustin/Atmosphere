@@ -21,7 +21,7 @@
 | 🌱 土壤湿度 / Soil moisture | AO 模拟量 + DO 数字断线检测，百分比显示 |
 | 💧 流速 / Flow | YF-S401 霍尔传感器，实时流速（L/min）+ 累计流量 |
 | 🌬️ 风速 / Wind | 三杯式风速传感器（另一台电脑采集，HTTP 转发集成） |
-| 🚰 水泵控制 / Pump control | 网页滑块 PWM 调速（0~100%）+ 软启动 + 功率显示，控制 D9 |
+| 🚰 水泵控制 / Pump control | 网页滑块 PWM 调速（0~100%）+ 软启动 + 整机功率显示，控制 D9 |
 | 🌐 Web 监控 / Web dashboard | 端口 8080，实时数据 + 气象 + 预警卡片 |
 | 🧠 预警模型 / Warning model | 泥石流危险指数 + 山洪尖峰 + 滑动基准 + 分级档位 |
 
@@ -47,24 +47,47 @@
 
 ```
 demo 1/
-├── README.md                 # 本文件（中英双语）/ this file (bilingual)
-├── zh-CN/                    # 中文版 / Chinese
-│   ├── FlowSensor.ino        # Arduino 固件（中文注释）
-│   ├── server.py             # Web 服务 + 预警模型（中文）
-│   ├── 说明文档-第一版.docx    # 第一版（原始算法 D<0.30）
-│   ├── 说明文档-第二版.docx    # 第二版（门槛 + 调阈值 D<0.45）
-│   └── 说明文档-第三版.docx    # 第三版（水泵 PWM 调速 + 滑块 + 功率）
-├── en-US/                    # 英文版 / English
-│   ├── FlowSensor.ino        # Arduino firmware (English comments)
-│   ├── server.py             # Web service + warning model (English)
-│   ├── Documentation-v1.docx # v1 (original algorithm D<0.30)
-│   ├── Documentation-v2.docx # v2 (gate + adjusted threshold D<0.45)
-│   └── Documentation-v3.docx # v3 (pump PWM speed control + slider + power)
+├── README.md                 # 本文件（中英双语 + 版本历史）/ this file (bilingual + version history)
+├── zh-CN/                    # 中文版 / Chinese（按版本分文件夹 / one folder per version）
+│   ├── beta1/                # 第一版：原始算法 D<0.30，水泵 D7 开关
+│   │   ├── FlowSensor.ino
+│   │   ├── server.py
+│   │   └── 说明文档.docx
+│   ├── beta2/                # 第二版：门槛 + 三级阈值 D<0.45
+│   │   ├── FlowSensor.ino
+│   │   ├── server.py
+│   │   └── 说明文档.docx
+│   ├── beta3/                # 第三版：水泵 D9 PWM 调速 + 滑块 + 功率
+│   │   ├── FlowSensor.ino
+│   │   ├── server.py
+│   │   └── 说明文档.docx
+│   └── beta4/                # 第四版（最新）：尖峰滑动基准 + 整机功率
+│       ├── FlowSensor.ino
+│       ├── server.py
+│       └── 说明文档.docx
+├── en-US/                    # 英文版 / English（同结构 / same structure）
+│   ├── beta1/ … beta4/       # 每版含 FlowSensor.ino + server.py + Documentation.docx
 └── media/                    # 图片与视频 / photos & videos
     ├── *.jpg
     ├── *.mp4
     └── *.mov
 ```
+
+---
+
+## 📜 版本历史 / Version History
+
+Demo 1 代码按迭代版本归档（beta1 → beta4），每版独立文件夹，改动如下：
+
+| 版本 / Version | 核心改动 / Key changes |
+| --- | --- |
+| **beta1**（第一版） | 原始算法：泥石流 D<0.30 无门槛；水泵 D7 数字开关（串口单字节 '1'/'0'） |
+| **beta2**（第二版） | 加门槛（土壤<60% 判安全）+ 三级阈值 0.30→0.45；水泵仍 D7 开关 |
+| **beta3**（第三版） | 水泵改 D9 PWM 调速 + 网页滑块（0~100%）+ 功率显示（单泵满载 1.25W） |
+| **beta4**（第四版·最新） | 尖峰检测改滑动基准（自适应 P95）+ 功率改整机功率（固定 0.4W + 占空比×泵） |
+
+> `.ino` 固件只有两个变体：D7 数字开关版（beta1/2）与 D9 PWM 调速版（beta3/4）；门槛/阈值/尖峰/功率等逻辑改动都在 `server.py`。
+> The `.ino` firmware has only two variants: D7 on/off (beta1/2) and D9 PWM (beta3/4); all gate/threshold/spike/power logic changes live in `server.py`.
 
 ---
 
@@ -114,8 +137,8 @@ D = 0.40·S̄ + 0.30·Q̄ + 0.20·dQ̄ + 0.10·ΔS̄
 
 - **曼宁公式 70% / Manning 70%**：`V = (1/n)·R^(2/3)·S^(1/2)` —— 需超声波水位传感器（河道水位 h）与河道流速，当前暂缺，未落地。
 - **Manning 70%**: `V = (1/n)·R^(2/3)·S^(1/2)` — requires an ultrasonic water-level sensor (channel depth h) and channel velocity, not yet implemented.
-- **尖峰检测 30% / Spike detection 30%**：用流量秒级变化率近似，阈值待标定。
-- **Spike 30%**: approximated by per-second flow change rate; threshold TBD.
+- **尖峰检测 30% / Spike detection 30%**：用流量秒级变化率近似，滑动基准自适应（对比当地流量变化率历史分布，超 P95 判高风险）。
+- **Spike 30%**: approximated by per-second flow change rate; sliding-baseline adaptive (vs local flow-change history, >P95 = high risk).
 
 ### 滑动基准 / Sliding Baseline（气候自适应 / climate-adaptive）
 
@@ -142,8 +165,8 @@ D = 0.40·S̄ + 0.30·Q̄ + 0.20·dQ̄ + 0.10·ΔS̄
 2. **山洪曼宁 / Flash-flood Manning**：缺超声波水位传感器，70% 分量未落地。
    **Missing ultrasonic water-level sensor**; the 70% Manning component is not implemented.
 
-3. **尖峰阈值 / Spike threshold**：`spike_risk = min(spike / 2.0, 1)` 的 `2.0` 参数待实测标定。
-   **Spike threshold** needs field calibration.
+3. **尖峰回退阈值 / Spike fallback threshold**：滑动基准数据不足（<2h）时回退到固定阈值 `2.0 L/min/s`，此参数待实测标定。
+   **Spike fallback threshold** `2.0 L/min/s` (used before the sliding baseline has 2h of data) still needs field calibration.
 
 ---
 
