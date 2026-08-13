@@ -1,20 +1,17 @@
-// 风速仪表盘服务器：读 Arduino 串口，网页实时显示
+// 风速仪表盘服务器：数据来自 8001 端口的风速转发服务（wind_server.py 独占串口）
 // 启动：node server.js （或 npm start）
 // 打开浏览器访问打印出来的地址，默认 http://localhost:3000
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { SerialPort } = require('serialport');
-const { ReadlineParser } = require('@serialport/parser-readline');
 
 const PUB = path.join(__dirname, 'public');
-const BAUDS = [9600, 57600, 115200];
+const FORWARD_URL = 'http://127.0.0.1:8001/wind';   // 8001 转发接口（wind_server.py）
 
-let port = null;
 let clients = new Set();
+let paused = false;
 let state = { connected: false, portName: null, baud: 9600, error: null, last: null, count: 0, score: null };
-let retryTimer = null;
 
 // ============ 加分/预警引擎 ============
 const SAMPLES_MAX_AGE = 90 * 60 * 1000;   // 样本保留 90 分钟（够算“一小时前”对比）
@@ -161,81 +158,50 @@ function parseLine(line) {
   return null;
 }
 
-function openPort(name, baud) {
-  closePort(true);
-  try {
-    port = new SerialPort({ path: name, baudRate: baud }, (err) => {
-      if (err) {
-        state.error = '打开失败: ' + err.message;
-        state.connected = false;
-        broadcast(state);
-        scheduleRetry();
-      }
-    });
-    port.pipe(new ReadlineParser({ delimiter: '\n' })).on('data', (line) => {
-      const v = parseLine(line);
-      if (v) {
-        v.t = Date.now();
-        state.last = v;
-        state.count++;
-        pushSample(v);
-        const ev = computeScore();
-        state.score = ev;
-        broadcast({ type: 'data', ...v, ...ev });
-      }
-    });
-    port.on('open', () => {
-      state = { ...state, connected: true, portName: name, baud, error: null };
-      broadcast(state);
-    });
-    port.on('close', () => {
-      state.connected = false;
-      broadcast(state);
-      scheduleRetry();
-    });
-    port.on('error', (e) => { state.error = e.message; scheduleRetry(); });
-  } catch (e) {
-    state.error = '打开失败: ' + e.message;
-    scheduleRetry();
+// ============ 数据源：轮询 8001 转发接口（不再直接占串口） ============
+function numOrNull(x) {
+  const n = parseFloat(x);
+  return isNaN(n) ? null : n;
+}
+
+function markDown(msg) {
+  if (state.connected || state.error !== msg) {
+    state = { ...state, connected: false, error: msg };
+    broadcast(state);
   }
 }
 
-function closePort(silent) {
-  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
-  if (port) {
-    const p = port;
-    port = null;
-    p.removeAllListeners();
-    p.on('error', () => {});          // 吞掉关闭时的错误，防止崩溃
-    try { if (p.isOpen) p.close(); } catch (e) {}
-  }
-  state.connected = false;
-  if (!silent) broadcast(state);
-}
-
-// 自动找 Arduino 串口
-async function findArduinoPort() {
-  try {
-    const list = await SerialPort.list();
-    const arduino = list.find(p => /arduino|ch340|usb|acm|wch/i.test(p.manufacturer || '') || /^COM\d+$/.test(p.path));
-    return arduino || list.find(p => /^COM\d+$/.test(p.path)) || null;
-  } catch (e) { return null; }
-}
-
-// 串口断开/打开失败后每 2 秒自动重连，直到成功
-function scheduleRetry() {
-  if (retryTimer || state.connected) return;
-  retryTimer = setTimeout(async () => {
-    retryTimer = null;
-    if (!state.connected) {
-      const target = state.portName || await findArduinoPort();
-      if (target) {
-        if (typeof target === 'string') openPort(target, 9600);
-        else openPort(target.path, 9600);
+function pollForward() {
+  if (paused) { setTimeout(pollForward, 1000); return; }
+  http.get(FORWARD_URL, (res) => {
+    let body = '';
+    res.on('data', c => body += c);
+    res.on('end', () => {
+      try {
+        const j = JSON.parse(body);
+        const kmh = parseFloat(j.wind_kmh);
+        if (!isNaN(kmh)) {
+          const v = { volt: null, kmh, temp: numOrNull(j.temp), hum: numOrNull(j.hum), t: Date.now() };
+          if (!state.connected) {
+            state = { ...state, connected: true, portName: 'COM3 (经8001转发)', baud: 9600, error: null };
+            broadcast(state);
+          }
+          state.last = v;
+          state.count++;
+          pushSample(v);
+          const ev = computeScore();
+          state.score = ev;
+          broadcast({ type: 'data', ...v, ...ev });
+        }
+      } catch (e) {
+        markDown('转发数据解析失败: ' + e.message);
       }
-      scheduleRetry();
-    }
-  }, 2000);
+      setTimeout(pollForward, 1000);
+    });
+  }).on('error', (e) => {
+    markDown('8001 转发不可用: ' + e.message);
+    setTimeout(pollForward, 2000);
+  });
 }
 
 const server = http.createServer((req, res) => {
@@ -248,32 +214,23 @@ const server = http.createServer((req, res) => {
     fs.createReadStream(f).pipe(res);
     return;
   }
-  // 串口列表
+  // 串口列表（已改为经 8001 转发，这里返回固定信息）
   if (url.pathname === '/api/ports') {
-    SerialPort.list().then(list => {
-      const ports = list
-        .filter(p => /^COM\d+$/.test(p.path))
-        .map(p => ({ path: p.path, desc: p.manufacturer || p.friendlyName || '' }));
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ports }));
-    }).catch(e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ports: [{ path: 'COM3', desc: '经 8001 转发（wind_server.py）' }] }));
     return;
   }
-  // 连接 / 断开
+  // 连接 / 断开（切换轮询开关）
   if (url.pathname === '/api/connect' && req.method === 'POST') {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', () => {
-      try {
-        const { portName, baud } = JSON.parse(body || '{}');
-        openPort(portName, baud || 9600);
-        res.writeHead(200); res.end('ok');
-      } catch (e) { res.writeHead(400); res.end('bad request'); }
-    });
+    paused = false;
+    if (!state.connected) { state = { ...state, error: null }; broadcast(state); }
+    res.writeHead(200); res.end('ok');
     return;
   }
   if (url.pathname === '/api/disconnect') {
-    closePort(false);
+    paused = true;
+    state = { ...state, connected: false, error: '已暂停（由网页断开）' };
+    broadcast(state);
     res.writeHead(200); res.end('ok');
     return;
   }
@@ -317,23 +274,19 @@ function onListening() {
   console.log('==============================================');
   console.log('  风速仪表盘已启动!');
   console.log('  浏览器打开: http://localhost:' + currentPort);
-  console.log('  串口: ' + (state.portName || '自动搜索中…') + ' @ 9600');
+  console.log('  数据源: 8001 转发 (wind_server.py)');
   console.log('  Ctrl+C 停止');
   console.log('==============================================');
 }
 
-server.on('close', () => closePort(true));
-process.on('SIGINT', () => { closePort(true); process.exit(0); });
+server.on('close', () => {});
+process.on('SIGINT', () => process.exit(0));
 // 兜底：任何未捕获异常只记录日志，不让服务器崩溃
 process.on('uncaughtException', (e) => {
   console.error('未捕获异常(已忽略):', e.message);
 });
 
-(async () => {
-  const target = await findArduinoPort();
-  if (target) openPort(target.path, 9600);
-  else scheduleRetry();
-  server.on('error', onServerError);
-  if (process.env.PORT) currentPort = parseInt(process.env.PORT, 10) || 3000;
-  server.listen(currentPort, onListening);
-})();
+server.on('error', onServerError);
+if (process.env.PORT) currentPort = parseInt(process.env.PORT, 10) || 3000;
+server.listen(currentPort, onListening);
+pollForward();
