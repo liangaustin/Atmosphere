@@ -52,21 +52,21 @@ demo 1/
 │   ├── beta1/                # 第一版：原始算法 D<0.30，水泵 D7 开关
 │   │   ├── FlowSensor.ino
 │   │   ├── server.py
-│   │   └── 说明文档.docx
+│   │   └── 说明文档.md
 │   ├── beta2/                # 第二版：门槛 + 三级阈值 D<0.45
 │   │   ├── FlowSensor.ino
 │   │   ├── server.py
-│   │   └── 说明文档.docx
+│   │   └── 说明文档.md
 │   ├── beta3/                # 第三版：水泵 D9 PWM 调速 + 滑块 + 功率
 │   │   ├── FlowSensor.ino
 │   │   ├── server.py
-│   │   └── 说明文档.docx
-│   └── beta4/                # 第四版（最新）：尖峰滑动基准 + 整机功率
+│   │   └── 说明文档.md
+│   └── beta4/                # 第四版（最新 · Demo 1 最终版）：尖峰滑动基准 + 整机功率
 │       ├── FlowSensor.ino
 │       ├── server.py
-│       └── 说明文档.docx
+│       └── 说明文档.md
 ├── en-US/                    # 英文版 / English（同结构 / same structure）
-│   ├── beta1/ … beta4/       # 每版含 FlowSensor.ino + server.py + Documentation.docx
+│   ├── beta1/ … beta4/       # 每版含 FlowSensor.ino + server.py + Documentation.md
 └── media/                    # 图片与视频 / photos & videos
     ├── *.jpg
     ├── *.mp4
@@ -84,7 +84,10 @@ Demo 1 代码按迭代版本归档（beta1 → beta4），每版独立文件夹�
 | **beta1**（第一版） | 原始算法：泥石流 D<0.30 无门槛；水泵 D7 数字开关（串口单字节 '1'/'0'） |
 | **beta2**（第二版） | 加门槛（土壤<60% 判安全）+ 三级阈值 0.30→0.45；水泵仍 D7 开关 |
 | **beta3**（第三版） | 水泵改 D9 PWM 调速 + 网页滑块（0~100%）+ 功率显示（单泵满载 1.25W） |
-| **beta4**（第四版·最新） | 尖峰检测改滑动基准（自适应 P95）+ 功率改整机功率（固定 0.4W + 占空比×泵） |
+| **beta4**（第四版 · **Demo 1 最终版**） | 尖峰检测改滑动基准（自适应 P95）+ 功率改整机功率（固定 0.4W + 占空比×泵） |
+
+> 🏁 **版本规划 / Version Plan**：**beta4 是 Demo 1 的最终版本**，Demo 1 到此完结，不再出 beta5。后续开发转入 **Demo 2**——新增超声波水位传感器，补全山洪预警曼宁公式 70% 分量（当前缺水位 h）。
+> 🏁 **Version plan**: **beta4 is the final version of Demo 1**; Demo 1 is complete and there will be no beta5. Development moves to **Demo 2** — adding an ultrasonic water-level sensor to complete the 70% Manning component of flash-flood warning (currently missing depth h).
 
 > `.ino` 固件只有两个变体：D7 数字开关版（beta1/2）与 D9 PWM 调速版（beta3/4）；门槛/阈值/尖峰/功率等逻辑改动都在 `server.py`。
 > The `.ino` firmware has only two variants: D7 on/off (beta1/2) and D9 PWM (beta3/4); all gate/threshold/spike/power logic changes live in `server.py`.
@@ -162,8 +165,8 @@ D = 0.40·S̄ + 0.30·Q̄ + 0.20·dQ̄ + 0.10·ΔS̄
 1. **水泵供电 / Pump power**：水泵从 Arduino 取电，高速时电流大仍会拉垮 5V 断电复位（PWM 软启动已缓解启动冲击，但治标不治本）。**需改为独立供电**（单独 5V 电源，VCC 不再接 Arduino 5V，只共地）。
    **Pump powered from Arduino** sags the 5V rail under high speed, resetting the board (PWM soft-start eases inrush but is not a cure). **Use an independent power supply** (separate 5V source; pump VCC no longer on Arduino 5V, only common ground).
 
-2. **山洪曼宁 / Flash-flood Manning**：缺超声波水位传感器，70% 分量未落地。
-   **Missing ultrasonic water-level sensor**; the 70% Manning component is not implemented.
+2. **山洪曼宁 / Flash-flood Manning**：缺超声波水位传感器，70% 分量未落地 —— **Demo 2 将补全**。
+   **Missing ultrasonic water-level sensor**; the 70% Manning component is not implemented — **to be completed in Demo 2**.
 
 3. **尖峰回退阈值 / Spike fallback threshold**：滑动基准数据不足（<2h）时回退到固定阈值 `2.0 L/min/s`，此参数待实测标定。
    **Spike fallback threshold** `2.0 L/min/s` (used before the sliding baseline has 2h of data) still needs field calibration.
