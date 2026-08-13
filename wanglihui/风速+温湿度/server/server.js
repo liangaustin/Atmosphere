@@ -1,0 +1,310 @@
+// 风速仪表盘服务器：读 Arduino 串口，网页实时显示
+// 启动：node server.js （或 npm start）
+// 打开浏览器访问打印出来的地址，默认 http://localhost:3000
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { SerialPort } = require('serialport');
+const { ReadlineParser } = require('@serialport/parser-readline');
+
+const PUB = path.join(__dirname, 'public');
+const BAUDS = [9600, 57600, 115200];
+
+let port = null;
+let clients = new Set();
+let state = { connected: false, portName: null, baud: 9600, error: null, last: null, count: 0, score: null };
+let retryTimer = null;
+
+// ============ 加分/预警引擎 ============
+const SAMPLES_MAX_AGE = 90 * 60 * 1000;   // 样本保留 90 分钟（够算“一小时前”对比）
+const samples = [];                        // {t, kmh, temp, hum}
+
+function pushSample(v) {
+  samples.push(v);
+  const cutoff = Date.now() - SAMPLES_MAX_AGE;
+  while (samples.length && samples[0].t < cutoff) samples.shift();
+}
+
+// 某字段在 [ageMin, ageMax] 毫秒前的均值；数据不足返回 NaN
+function meanField(field, ageMin, ageMax) {
+  const now = Date.now();
+  let sum = 0, n = 0;
+  for (const s of samples) {
+    const age = now - s.t;
+    if (age >= ageMin && age <= ageMax && s[field] != null) { sum += s[field]; n++; }
+  }
+  return n ? sum / n : NaN;
+}
+
+// 阵风：最近 gustWin 毫秒内的最大风速（km/h）
+function gustPeak(gustWin) {
+  const now = Date.now();
+  let mx = NaN;
+  for (const s of samples) {
+    const age = now - s.t;
+    if (age <= gustWin && s.kmh != null && (isNaN(mx) || s.kmh > mx)) mx = s.kmh;
+  }
+  return mx;
+}
+
+// 露点（Magnus 公式）
+function dewPoint(t, rh) {
+  const a = 17.625, b = 243.04;
+  const g = Math.log(rh / 100) + a * t / (b + t);
+  return b * g / (a - g);
+}
+
+const MIN = 60 * 1000;
+// 返回当前得分评估：{ score, level, rules:[{name,pts}], baselineKmh, gustMs }
+// level: 0=正常 1=一级(≥4) 2=二级(≥6) 3=三级(≥8)；得分 = 当前满足条件的分值合计
+function computeScore() {
+  const rules = [];
+  let score = 0;
+  const add = (name, pts, ok) => { if (ok) { score += pts; rules.push({ name, pts }); } };
+
+  const gust = gustPeak(3000);                        // 阵风：最近 3 秒峰值
+  const gustMs = gust / 3.6;
+  const mean2Ms = meanField('kmh', 0, 2 * MIN) / 3.6; // 2 分钟平均 m/s
+  const baselineKmh = meanField('kmh', 0, 30 * MIN);  // 基准线：30 分钟平均 km/h
+  const baselineMs = baselineKmh / 3.6;
+
+  // 1. 阵风骤增：2分钟平均 ≥ 基线2倍 且 阵风 ≥ 5m/s
+  add('阵风骤增', 3, !isNaN(mean2Ms) && !isNaN(baselineMs) && baselineMs > 0.1 && mean2Ms >= 2 * baselineMs && gustMs >= 5);
+  // 2. 静风后突风：平均 < 1.5m/s 且 阵风 ≥ 4m/s
+  add('静风后突风', 2, !isNaN(mean2Ms) && mean2Ms < 1.5 && gustMs >= 4);
+  // 3. 大风：阵风 ≥ 8m/s
+  add('大风', 2, gustMs >= 8);
+
+  const tempNow = meanField('temp', 0, 30 * 1000);
+  const temp15 = meanField('temp', 14 * MIN, 16 * MIN);
+  // 4. 温度骤降：现在比 15 分钟前低 5℃
+  add('温度骤降', 2, !isNaN(tempNow) && !isNaN(temp15) && tempNow <= temp15 - 5);
+
+  const hum10 = meanField('hum', 0, 10 * MIN);
+  const hum60 = meanField('hum', 55 * MIN, 65 * MIN);
+  const humNow = meanField('hum', 0, 30 * 1000);
+  // 5. 湿度骤升：10分钟均值比一小时前提升 ≥15%
+  add('湿度骤升', 2, !isNaN(hum10) && !isNaN(hum60) && hum60 > 0 && hum10 >= hum60 * 1.15);
+  // 6. 湿度高且突然上升：≥80% 且一小时提升 ≥15%
+  add('湿度高且突然上升', 3, !isNaN(humNow) && !isNaN(hum60) && humNow >= 80 && hum60 > 0 && (humNow - hum60) / hum60 >= 0.15);
+  // 7. 湿度接近饱和：≥90%
+  add('湿度接近饱和', 1, !isNaN(humNow) && humNow >= 90);
+  // 8. 露点贴近气温：气温-露点 ≤2℃ 且 湿度 ≥70%
+  if (!isNaN(tempNow) && !isNaN(humNow) && humNow >= 70) {
+    add('露点贴近气温', 2, (tempNow - dewPoint(tempNow, humNow)) <= 2);
+  }
+
+  const level = score >= 8 ? 3 : score >= 6 ? 2 : score >= 4 ? 1 : 0;
+  return { score, level, rules, baselineKmh: isNaN(baselineKmh) ? null : baselineKmh, gustMs: isNaN(gustMs) ? null : gustMs };
+}
+// ======================================
+
+function broadcast(obj) {
+  const data = 'data: ' + JSON.stringify(obj) + '\n\n';
+  for (const res of clients) {
+    try { res.write(data); } catch (e) { clients.delete(res); }
+  }
+}
+
+// 解析一行串口数据（兼容两种格式）
+function parseLine(line) {
+  line = (line || '').trim();
+  if (!line) return null;
+  // 格式1：电压,风速[,温度[,湿度]]  (0.51,51.3,26.5,55.0 或 0.00,0.0,NaN,NaN)
+  const nums = line.split(',').map(s => parseFloat(s.trim()));
+  if (nums.length >= 2 && !isNaN(nums[0]) && !isNaN(nums[1])) {
+    const t = nums.length >= 3 ? nums[2] : NaN;
+    const h = nums.length >= 4 ? nums[3] : NaN;
+    return { volt: nums[0], kmh: nums[1], temp: isNaN(t) ? null : t, hum: isNaN(h) ? null : h };
+  }
+  // 格式2：01 例程的文本  电压=0.51V 风速=51.3 km/h
+  const km = line.match(/风速=([\d.]+)/);
+  if (km) {
+    const vm = line.match(/电压=([\d.]+)/);
+    const tm = line.match(/温度=([\d.]+)/);
+    const hm = line.match(/湿度=([\d.]+)/);
+    return { kmh: parseFloat(km[1]), volt: vm ? parseFloat(vm[1]) : null, temp: tm ? parseFloat(tm[1]) : null, hum: hm ? parseFloat(hm[1]) : null };
+  }
+  // 格式3：只有单个数字
+  const n = parseFloat(line);
+  if (!isNaN(n)) return { kmh: n, volt: null };
+  return null;
+}
+
+function openPort(name, baud) {
+  closePort(true);
+  try {
+    port = new SerialPort({ path: name, baudRate: baud }, (err) => {
+      if (err) {
+        state.error = '打开失败: ' + err.message;
+        state.connected = false;
+        broadcast(state);
+        scheduleRetry();
+      }
+    });
+    port.pipe(new ReadlineParser({ delimiter: '\n' })).on('data', (line) => {
+      const v = parseLine(line);
+      if (v) {
+        v.t = Date.now();
+        state.last = v;
+        state.count++;
+        pushSample(v);
+        const ev = computeScore();
+        state.score = ev;
+        broadcast({ type: 'data', ...v, ...ev });
+      }
+    });
+    port.on('open', () => {
+      state = { ...state, connected: true, portName: name, baud, error: null };
+      broadcast(state);
+    });
+    port.on('close', () => {
+      state.connected = false;
+      broadcast(state);
+      scheduleRetry();
+    });
+    port.on('error', (e) => { state.error = e.message; scheduleRetry(); });
+  } catch (e) {
+    state.error = '打开失败: ' + e.message;
+    scheduleRetry();
+  }
+}
+
+function closePort(silent) {
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  if (port) {
+    const p = port;
+    port = null;
+    p.removeAllListeners();
+    p.on('error', () => {});          // 吞掉关闭时的错误，防止崩溃
+    try { if (p.isOpen) p.close(); } catch (e) {}
+  }
+  state.connected = false;
+  if (!silent) broadcast(state);
+}
+
+// 自动找 Arduino 串口
+async function findArduinoPort() {
+  try {
+    const list = await SerialPort.list();
+    const arduino = list.find(p => /arduino|ch340|usb|acm|wch/i.test(p.manufacturer || '') || /^COM\d+$/.test(p.path));
+    return arduino || list.find(p => /^COM\d+$/.test(p.path)) || null;
+  } catch (e) { return null; }
+}
+
+// 串口断开/打开失败后每 2 秒自动重连，直到成功
+function scheduleRetry() {
+  if (retryTimer || state.connected) return;
+  retryTimer = setTimeout(async () => {
+    retryTimer = null;
+    if (!state.connected) {
+      const target = state.portName || await findArduinoPort();
+      if (target) {
+        if (typeof target === 'string') openPort(target, 9600);
+        else openPort(target.path, 9600);
+      }
+      scheduleRetry();
+    }
+  }, 2000);
+}
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://x');
+
+  // 静态页面
+  if (url.pathname === '/' || url.pathname === '/index.html') {
+    const f = path.join(PUB, 'index.html');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    fs.createReadStream(f).pipe(res);
+    return;
+  }
+  // 串口列表
+  if (url.pathname === '/api/ports') {
+    SerialPort.list().then(list => {
+      const ports = list
+        .filter(p => /^COM\d+$/.test(p.path))
+        .map(p => ({ path: p.path, desc: p.manufacturer || p.friendlyName || '' }));
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ports }));
+    }).catch(e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
+    return;
+  }
+  // 连接 / 断开
+  if (url.pathname === '/api/connect' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { portName, baud } = JSON.parse(body || '{}');
+        openPort(portName, baud || 9600);
+        res.writeHead(200); res.end('ok');
+      } catch (e) { res.writeHead(400); res.end('bad request'); }
+    });
+    return;
+  }
+  if (url.pathname === '/api/disconnect') {
+    closePort(false);
+    res.writeHead(200); res.end('ok');
+    return;
+  }
+  // 状态
+  if (url.pathname === '/api/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(state));
+    return;
+  }
+  // SSE 数据流
+  if (url.pathname === '/api/stream') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    res.write('retry: 2000\n\n');
+    clients.add(res);
+    res.write('data: ' + JSON.stringify(state) + '\n\n');
+    req.on('close', () => clients.delete(res));
+    return;
+  }
+  res.writeHead(404); res.end('not found');
+});
+
+// 端口：默认 3000，被占用则顺延 3001/3002…
+let currentPort = 3000;
+
+function onServerError(e) {
+  if (e.code === 'EADDRINUSE') {
+    currentPort += 1;
+    console.log('端口 ' + (currentPort - 1) + ' 被占用，改用 ' + currentPort);
+    server.listen(currentPort, onListening);
+  } else {
+    console.error('服务器错误:', e.message);
+    process.exit(1);
+  }
+}
+
+function onListening() {
+  console.log('==============================================');
+  console.log('  风速仪表盘已启动!');
+  console.log('  浏览器打开: http://localhost:' + currentPort);
+  console.log('  串口: ' + (state.portName || '自动搜索中…') + ' @ 9600');
+  console.log('  Ctrl+C 停止');
+  console.log('==============================================');
+}
+
+server.on('close', () => closePort(true));
+process.on('SIGINT', () => { closePort(true); process.exit(0); });
+// 兜底：任何未捕获异常只记录日志，不让服务器崩溃
+process.on('uncaughtException', (e) => {
+  console.error('未捕获异常(已忽略):', e.message);
+});
+
+(async () => {
+  const target = await findArduinoPort();
+  if (target) openPort(target.path, 9600);
+  else scheduleRetry();
+  server.on('error', onServerError);
+  if (process.env.PORT) currentPort = parseInt(process.env.PORT, 10) || 3000;
+  server.listen(currentPort, onListening);
+})();

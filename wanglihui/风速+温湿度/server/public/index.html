@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风速仪表盘</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", Arial, sans-serif; background: #0d1b2a; color: #e0e1dd; min-height: 100vh; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  h1 { font-size: 22px; color: #7fd8c9; }
+  .status { font-size: 13px; padding: 4px 12px; border-radius: 20px; background: #263238; }
+  .status.on { background: #1b5e20; color: #a5d6a7; }
+  .status.off { background: #4a148c; color: #e1bee7; }
+
+  .warn { border-radius: 14px; padding: 12px 16px; margin-bottom: 16px; border: 1px solid; font-size: 14px; }
+  .warn.lv1 { background: rgba(255,179,0,.12); border-color: #ffb300; color: #ffd54f; }
+  .warn.lv2 { background: rgba(255,109,0,.14); border-color: #ff6d00; color: #ffab91; }
+  .warn.lv3 { background: rgba(229,57,53,.20); border-color: #e53935; color: #ff8a80; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .55; } }
+  .warn .rules { margin-top: 6px; font-size: 13px; color: #cfd8dc; }
+
+  .big-card { background: linear-gradient(135deg, #102a43, #1b3a5c); border: 1px solid #2c4a6e; border-radius: 16px; padding: 26px 20px; text-align: center; margin-bottom: 16px; }
+  .big-value { font-size: 76px; font-weight: bold; color: #7fd8c9; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big-unit { font-size: 20px; color: #90a4ae; margin-left: 8px; }
+  .sub-line { margin-top: 10px; font-size: 14px; color: #b0bec5; }
+  .sub-line b { color: #ffd54f; }
+
+  .card { background: #102a43; border: 1px solid #2c4a6e; border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; color: #7fd8c9; margin-bottom: 10px; font-weight: normal; }
+  canvas { width: 100%; height: 260px; display: block; background: #0b1a2b; border-radius: 8px; }
+
+  .ctrl { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  select, button { font-size: 14px; padding: 8px 14px; border-radius: 8px; border: 1px solid #2c4a6e; background: #1b3a5c; color: #e0e1dd; cursor: pointer; }
+  button.primary { background: #00897b; border-color: #00897b; font-weight: bold; }
+  button.primary:hover { background: #26a69a; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .meta { font-size: 12px; color: #78909c; margin-top: 8px; }
+  #err { color: #ef9a9a; font-size: 13px; margin-top: 6px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🌬️ 风速仪表盘</h1>
+    <div id="statusBar" class="status off">连接中…</div>
+    <div id="scoreBadge" class="status off">得分 -- · 正常</div>
+  </header>
+
+  <div id="warnBanner" class="warn" style="display:none;">
+    <b id="warnTitle">预警</b>
+    <div class="rules" id="warnRules"></div>
+  </div>
+
+  <div class="big-card">
+    <div><span id="bigValue" class="big-value">--.-</span><span class="big-unit">km/h</span></div>
+    <div class="sub-line">≈ <b id="bigMs">--.-</b> m/s &nbsp;·&nbsp; 阵风 <b id="gustVal">--</b> m/s &nbsp;·&nbsp; 基准线 <b id="baseVal">--</b> km/h &nbsp;·&nbsp; 电压 <b id="voltVal">--</b> V &nbsp;·&nbsp; 温度 <b id="tempVal">--</b> ℃ &nbsp;·&nbsp; 湿度 <b id="humVal">--</b> % &nbsp;·&nbsp; 已收到 <b id="countVal">0</b> 个数据</div>
+  </div>
+
+  <div class="card">
+    <h2>风速曲线（最近 90 秒 · 青线=风速 km/h）</h2>
+    <canvas id="chart" width="960" height="520"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>温湿度曲线（最近 90 秒 · 橙线=温度 ℃ · 蓝线=湿度 %）</h2>
+    <canvas id="chart2" width="960" height="520"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>串口设置</h2>
+    <div class="ctrl">
+      <select id="portSel"></select>
+      <select id="baudSel">
+        <option value="9600" selected>9600</option>
+        <option value="57600">57600</option>
+        <option value="115200">115200</option>
+      </select>
+      <button id="refreshBtn" title="重新扫描串口">刷新</button>
+      <button id="connectBtn" class="primary">连接</button>
+      <button id="disconnectBtn">断开</button>
+    </div>
+    <div id="err"></div>
+    <div class="meta" id="meta">提示：板子上传 02_WindTempHumidity（或 14_WindTemp / 10_SerialCSV / 01_WindSensor）程序后，点"连接"即可。</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const bigValue = $('bigValue'), bigMs = $('bigMs'), voltVal = $('voltVal'),
+      tempVal = $('tempVal'), humVal = $('humVal'), gustVal = $('gustVal'), baseVal = $('baseVal'),
+      countVal = $('countVal'), statusBar = $('statusBar'), scoreBadge = $('scoreBadge'),
+      warnBanner = $('warnBanner'), warnTitle = $('warnTitle'), warnRules = $('warnRules'), errBox = $('err'),
+      portSel = $('portSel'), baudSel = $('baudSel'),
+      connectBtn = $('connectBtn'), disconnectBtn = $('disconnectBtn'), refreshBtn = $('refreshBtn');
+
+const MAX_POINTS = 90;
+const points = [];   // {t, kmh, temp}
+const points2 = [];  // {t, temp, hum}
+let connected = false;
+let currentEval = { score: 0, level: 0, rules: [], baselineKmh: null };
+let prevLevel = 0;
+
+// ---------- 图表 ----------
+const canvas = $('chart');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const PAD = { l: 46, r: 14, t: 12, b: 26 };
+
+const canvas2 = $('chart2');
+const ctx2 = canvas2.getContext('2d');
+const W2 = canvas2.width, H2 = canvas2.height;
+const PAD2 = { l: 46, r: 46, t: 12, b: 26 };
+
+function drawChart() {
+  ctx.clearRect(0, 0, W, H);
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+  const n = points.length;
+  let min = 0, max = 10;
+  for (const p of points) {
+    if (p.kmh > max) max = p.kmh;
+    if (p.kmh < min) min = p.kmh;
+  }
+  if (max - min < 5) { max = min + 5; }
+  const span = max - min;
+
+  // 网格 + 刻度
+  ctx.font = '11px Microsoft YaHei';
+  ctx.textAlign = 'right';
+  const gridN = 5;
+  for (let i = 0; i <= gridN; i++) {
+    const v = min + span * i / gridN;
+    const y = H - PAD.b - ch * i / gridN;
+    ctx.strokeStyle = 'rgba(255,255,255,.08)';
+    ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
+    ctx.fillStyle = '#78909c';
+    ctx.fillText(v.toFixed(1), PAD.l - 8, y + 4);
+  }
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#78909c';
+  ctx.fillText('秒', W - PAD.r - 14, H - 8);
+
+  // 基准线（30分钟平均风速，黄色虚线）
+  if (currentEval.baselineKmh != null && currentEval.baselineKmh > 0) {
+    const by = H - PAD.b - (currentEval.baselineKmh - min) / span * ch;
+    ctx.strokeStyle = 'rgba(255,213,79,.85)';
+    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(PAD.l, by); ctx.lineTo(W - PAD.r, by); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = '11px Microsoft YaHei';
+    ctx.textAlign = 'left';
+    ctx.fillText('基准线 ' + currentEval.baselineKmh.toFixed(1) + ' km/h', PAD.l + 8, by - 6);
+  }
+
+  if (n < 2) {
+    ctx.fillStyle = '#546e7a';
+    ctx.font = '15px Microsoft YaHei';
+    ctx.textAlign = 'center';
+    ctx.fillText('等待数据…', W / 2, H / 2);
+    return;
+  }
+
+  // 折线（风速）
+  const t0 = points[0].t, t1 = points[n - 1].t;
+  const dur = Math.max(1000, t1 - t0);
+  ctx.strokeStyle = '#7fd8c9';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = PAD.l + (points[i].t - t0) / dur * cw;
+    const y = H - PAD.b - (points[i].kmh - min) / span * ch;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // 图例
+  ctx.font = '11px Microsoft YaHei';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#7fd8c9'; ctx.fillRect(PAD.l + 8, 4, 16, 4);
+  ctx.fillStyle = '#cfd8dc'; ctx.fillText('风速 km/h', PAD.l + 28, 11);
+
+  // 当前点
+  const last = points[n - 1];
+  const lx = PAD.l + (last.t - t0) / dur * cw;
+  const ly = H - PAD.b - (last.kmh - min) / span * ch;
+  ctx.fillStyle = '#ffd54f';
+  ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.fill();
+}
+
+// ---------- 温湿度图（双轴：左=温度 0~50℃ 右=湿度 0~100%） ----------
+const T_RANGE = [0, 50];
+const H_RANGE = [0, 100];
+
+function drawChart2() {
+  ctx2.clearRect(0, 0, W2, H2);
+  const cw = W2 - PAD2.l - PAD2.r, ch = H2 - PAD2.t - PAD2.b;
+  const n = points2.length;
+
+  // 网格 + 双轴刻度
+  ctx2.font = '11px Microsoft YaHei';
+  const gridN = 5;
+  for (let i = 0; i <= gridN; i++) {
+    const y = H2 - PAD2.b - ch * i / gridN;
+    ctx2.strokeStyle = 'rgba(255,255,255,.08)';
+    ctx2.beginPath(); ctx2.moveTo(PAD2.l, y); ctx2.lineTo(W2 - PAD2.r, y); ctx2.stroke();
+    ctx2.textAlign = 'right';
+    ctx2.fillStyle = '#ff8a65';
+    ctx2.fillText((T_RANGE[0] + (T_RANGE[1] - T_RANGE[0]) * i / gridN).toFixed(0), PAD2.l - 8, y + 4);
+    ctx2.textAlign = 'left';
+    ctx2.fillStyle = '#4fc3f7';
+    ctx2.fillText((H_RANGE[0] + (H_RANGE[1] - H_RANGE[0]) * i / gridN).toFixed(0), W2 - PAD2.r + 8, y + 4);
+  }
+  ctx2.textAlign = 'right'; ctx2.fillStyle = '#ff8a65';
+  ctx2.fillText('温度℃', PAD2.l - 8, 12);
+  ctx2.textAlign = 'left'; ctx2.fillStyle = '#4fc3f7';
+  ctx2.fillText('湿度%', W2 - PAD2.r + 8, 12);
+
+  if (n < 2) {
+    ctx2.fillStyle = '#546e7a';
+    ctx2.font = '15px Microsoft YaHei';
+    ctx2.textAlign = 'center';
+    ctx2.fillText('等待数据…', W2 / 2, H2 / 2);
+    return;
+  }
+
+  const t0 = points2[0].t, t1 = points2[n - 1].t;
+  const dur = Math.max(1000, t1 - t0);
+
+  function yFor(v, range) {
+    return H2 - PAD2.b - (v - range[0]) / (range[1] - range[0]) * ch;
+  }
+
+  // 温度线（橙）
+  ctx2.strokeStyle = '#ff8a65';
+  ctx2.lineWidth = 2.5;
+  ctx2.lineJoin = 'round';
+  ctx2.beginPath();
+  let first = true;
+  for (let i = 0; i < n; i++) {
+    const p = points2[i];
+    if (p.temp == null) { first = true; continue; }
+    const x = PAD2.l + (p.t - t0) / dur * cw;
+    const y = yFor(p.temp, T_RANGE);
+    if (first) { ctx2.moveTo(x, y); first = false; } else ctx2.lineTo(x, y);
+  }
+  ctx2.stroke();
+
+  // 湿度线（蓝）
+  ctx2.strokeStyle = '#4fc3f7';
+  ctx2.lineWidth = 2.5;
+  ctx2.beginPath();
+  first = true;
+  for (let i = 0; i < n; i++) {
+    const p = points2[i];
+    if (p.hum == null) { first = true; continue; }
+    const x = PAD2.l + (p.t - t0) / dur * cw;
+    const y = yFor(p.hum, H_RANGE);
+    if (first) { ctx2.moveTo(x, y); first = false; } else ctx2.lineTo(x, y);
+  }
+  ctx2.stroke();
+
+  // 图例
+  ctx2.font = '11px Microsoft YaHei';
+  ctx2.textAlign = 'left';
+  ctx2.fillStyle = '#ff8a65'; ctx2.fillRect(PAD2.l + 8, 22, 16, 4);
+  ctx2.fillStyle = '#cfd8dc'; ctx2.fillText('温度 ℃', PAD2.l + 28, 28);
+  ctx2.fillStyle = '#4fc3f7'; ctx2.fillRect(PAD2.l + 108, 22, 16, 4);
+  ctx2.fillStyle = '#cfd8dc'; ctx2.fillText('湿度 %', PAD2.l + 128, 28);
+}
+
+function beep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'square'; o.frequency.value = 880;
+    g.gain.value = 0.08;
+    o.connect(g); g.connect(ac.destination);
+    o.start();
+    let n = 0;
+    const iv = setInterval(() => {
+      n++;
+      if (n >= 3) { clearInterval(iv); o.stop(); ac.close(); }
+    }, 400);
+  } catch (_) {}
+}
+
+// ---------- 数据 ----------
+function showState(s) {
+  connected = !!s.connected;
+  statusBar.className = 'status ' + (connected ? 'on' : 'off');
+  statusBar.textContent = connected
+    ? '已连接 ' + s.portName + ' @ ' + s.baud
+    : (s.error ? '未连接：' + s.error : '未连接');
+  if (s.last) updateValues(s.last);
+  if (s.count) countVal.textContent = s.count;
+  if (s.portName) $('meta').textContent = '当前串口：' + s.portName + ' @ ' + s.baud;
+}
+
+function updateValues(v) {
+  const kmh = v.kmh == null ? 0 : v.kmh;
+  bigValue.textContent = kmh.toFixed(1);
+  bigMs.textContent = (kmh / 3.6).toFixed(1);
+  voltVal.textContent = v.volt == null ? '--' : v.volt.toFixed(2);
+  tempVal.textContent = v.temp == null ? '--' : v.temp.toFixed(1);
+  humVal.textContent = v.hum == null ? '--' : v.hum.toFixed(1);
+  points.push({ t: v.t, kmh, temp: v.temp == null ? null : v.temp });
+  if (points.length > MAX_POINTS) points.shift();
+  points2.push({ t: v.t, temp: v.temp == null ? null : v.temp, hum: v.hum == null ? null : v.hum });
+  if (points2.length > MAX_POINTS) points2.shift();
+  countVal.textContent = v.count || countVal.textContent;
+
+  // 加分/预警
+  if (v.level !== undefined) {
+    currentEval = v;
+    const LNAME = ['正常', '一级预警', '二级预警', '三级预警'];
+    scoreBadge.className = 'status ' + (v.level >= 1 ? 'on' : 'off');
+    scoreBadge.textContent = '得分 ' + v.score + ' · ' + LNAME[v.level];
+    if (v.level >= 1) {
+      warnBanner.className = 'warn lv' + v.level;
+      warnBanner.style.display = 'block';
+      warnTitle.textContent = '⚠ ' + LNAME[v.level] + '（当前得分 ' + v.score + '）';
+      warnRules.textContent = v.rules.length
+        ? '触发条件：' + v.rules.map(r => r.name + '(+' + r.pts + ')').join('、')
+        : '触发条件：—';
+      if (v.level > prevLevel) beep();
+    } else {
+      warnBanner.style.display = 'none';
+    }
+    prevLevel = v.level;
+  }
+  gustVal.textContent = v.gustMs == null ? '--' : v.gustMs.toFixed(1);
+  baseVal.textContent = v.baselineKmh == null ? '--' : v.baselineKmh.toFixed(1);
+}
+
+// ---------- SSE ----------
+function connectStream() {
+  const es = new EventSource('/api/stream');
+  es.onmessage = e => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'data') { updateValues(d); drawChart(); drawChart2(); }
+      else showState(d);
+    } catch (_) {}
+  };
+  es.onerror = () => { /* 自动重连 */ };
+}
+
+// ---------- 串口操作 ----------
+async function loadPorts() {
+  try {
+    const r = await fetch('/api/ports');
+    const { ports } = await r.json();
+    portSel.innerHTML = '';
+    for (const p of ports) {
+      const o = document.createElement('option');
+      o.value = p.path;
+      o.textContent = p.path + (p.desc ? ' (' + p.desc + ')' : '');
+      portSel.appendChild(o);
+    }
+    if (!ports.length) {
+      const o = document.createElement('option');
+      o.textContent = '没有发现串口';
+      o.value = '';
+      portSel.appendChild(o);
+    }
+    errBox.textContent = '';
+  } catch (e) {
+    errBox.textContent = '获取串口列表失败：' + e.message;
+  }
+}
+
+connectBtn.onclick = async () => {
+  if (!portSel.value) { errBox.textContent = '请先选择串口'; return; }
+  errBox.textContent = '';
+  await fetch('/api/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ portName: portSel.value, baud: parseInt(baudSel.value) })
+  });
+};
+disconnectBtn.onclick = () => fetch('/api/disconnect', { method: 'POST' });
+refreshBtn.onclick = loadPorts;
+
+setInterval(() => {
+  // 超时提示
+  const last = points.length ? points[points.length - 1] : null;
+  if (!last || Date.now() - last.t > 4000) {
+    statusBar.className = 'status off';
+    if (!connected) return;
+    statusBar.textContent = '已连接，但 4 秒没收到数据（板子在上传程序吗？）';
+  }
+}, 2000);
+
+loadPorts();
+connectStream();
+</script>
+</body>
+</html>
