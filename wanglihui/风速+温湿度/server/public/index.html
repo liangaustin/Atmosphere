@@ -21,6 +21,13 @@
   @keyframes blink { 50% { opacity: .55; } }
   .warn .rules { margin-top: 6px; font-size: 13px; color: #cfd8dc; }
 
+  .rules-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rules-table th, .rules-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #1e3a56; }
+  .rules-table th { color: #7fd8c9; font-weight: normal; }
+  .rules-table td { color: #cfd8dc; }
+  .rules-table tr.active td { background: rgba(0,137,123,.15); color: #a5d6a7; }
+  .rules-table .pts { color: #ffd54f; font-weight: bold; }
+
   .big-card { background: linear-gradient(135deg, #102a43, #1b3a5c); border: 1px solid #2c4a6e; border-radius: 16px; padding: 26px 20px; text-align: center; margin-bottom: 16px; }
   .big-value { font-size: 76px; font-weight: bold; color: #7fd8c9; line-height: 1; font-variant-numeric: tabular-nums; }
   .big-unit { font-size: 20px; color: #90a4ae; margin-left: 8px; }
@@ -69,6 +76,14 @@
   </div>
 
   <div class="card">
+    <h2>加分规则明细（当前得分 <span id="scoreDetail" style="color:#ffd54f;">0</span>）</h2>
+    <table id="rulesTable" class="rules-table">
+      <thead><tr><th>规则</th><th>加分</th><th>状态</th><th>当前值 → 触发条件</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
     <h2>串口设置</h2>
     <div class="ctrl">
       <select id="portSel"></select>
@@ -94,7 +109,6 @@ const bigValue = $('bigValue'), bigMs = $('bigMs'), voltVal = $('voltVal'),
       warnBanner = $('warnBanner'), warnTitle = $('warnTitle'), warnRules = $('warnRules'), errBox = $('err'),
       portSel = $('portSel'), baudSel = $('baudSel'),
       connectBtn = $('connectBtn'), disconnectBtn = $('disconnectBtn'), refreshBtn = $('refreshBtn');
-
 const MAX_POINTS = 90;
 const points = [];   // {t, kmh, temp}
 const points2 = [];  // {t, temp, hum}
@@ -289,6 +303,19 @@ function beep() {
   } catch (_) {}
 }
 
+// ---------- 加分规则明细 ----------
+function renderRules(states) {
+  const tb = document.querySelector('#rulesTable tbody');
+  tb.innerHTML = states.map(r =>
+    '<tr class="' + (r.active ? 'active' : '') + '">' +
+    '<td>' + r.name + '</td>' +
+    '<td class="pts">+' + r.pts + '</td>' +
+    '<td>' + (r.active ? '✅ 已触发' : '○ 未触发') + '</td>' +
+    '<td>' + r.note + '</td>' +
+    '</tr>'
+  ).join('');
+}
+
 // ---------- 数据 ----------
 function showState(s) {
   connected = !!s.connected;
@@ -320,6 +347,8 @@ function updateValues(v) {
     const LNAME = ['正常', '一级预警', '二级预警', '三级预警'];
     scoreBadge.className = 'status ' + (v.level >= 1 ? 'on' : 'off');
     scoreBadge.textContent = '得分 ' + v.score + ' · ' + LNAME[v.level];
+    $('scoreDetail').textContent = v.score;
+    if (v.ruleStates) renderRules(v.ruleStates);
     if (v.level >= 1) {
       warnBanner.className = 'warn lv' + v.level;
       warnBanner.style.display = 'block';

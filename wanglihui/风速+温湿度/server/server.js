@@ -56,12 +56,17 @@ function dewPoint(t, rh) {
 }
 
 const MIN = 60 * 1000;
-// 返回当前得分评估：{ score, level, rules:[{name,pts}], baselineKmh, gustMs }
+const fmt = v => isNaN(v) ? '--' : v.toFixed(1);
+const pct = v => isNaN(v) ? '--' : (v * 100).toFixed(0) + '%';
+// 返回当前得分评估：{ score, level, rules, ruleStates:[{name,pts,active,note}], metrics, baselineKmh, gustMs }
 // level: 0=正常 1=一级(≥4) 2=二级(≥6) 3=三级(≥8)；得分 = 当前满足条件的分值合计
 function computeScore() {
-  const rules = [];
+  const ruleStates = [];
   let score = 0;
-  const add = (name, pts, ok) => { if (ok) { score += pts; rules.push({ name, pts }); } };
+  const add = (name, pts, ok, note) => {
+    ruleStates.push({ name, pts, active: !!ok, note: note || '' });
+    if (ok) score += pts;
+  };
 
   const gust = gustPeak(3000);                        // 阵风：最近 3 秒峰值
   const gustMs = gust / 3.6;
@@ -70,33 +75,57 @@ function computeScore() {
   const baselineMs = baselineKmh / 3.6;
 
   // 1. 阵风骤增：2分钟平均 ≥ 基线2倍 且 阵风 ≥ 5m/s
-  add('阵风骤增', 3, !isNaN(mean2Ms) && !isNaN(baselineMs) && baselineMs > 0.1 && mean2Ms >= 2 * baselineMs && gustMs >= 5);
+  add('阵风骤增', 3, !isNaN(mean2Ms) && !isNaN(baselineMs) && baselineMs > 0.1 && mean2Ms >= 2 * baselineMs && gustMs >= 5,
+    '2分钟均值 ' + fmt(mean2Ms) + ' vs 2×基准线 ' + fmt(2 * baselineMs) + ' m/s');
   // 2. 静风后突风：平均 < 1.5m/s 且 阵风 ≥ 4m/s
-  add('静风后突风', 2, !isNaN(mean2Ms) && mean2Ms < 1.5 && gustMs >= 4);
-  // 3. 大风：阵风 ≥ 8m/s
-  add('大风', 2, gustMs >= 8);
+  add('静风后突风', 2, !isNaN(mean2Ms) && mean2Ms < 1.5 && gustMs >= 4,
+    '均值 ' + fmt(mean2Ms) + ' <1.5 且 阵风 ' + fmt(gustMs) + ' ≥4 m/s');
+  // 3. 大风：阵风 ≥ 5m/s
+  add('大风', 2, gustMs >= 5, '阵风 ' + fmt(gustMs) + ' ≥5 m/s');
 
   const tempNow = meanField('temp', 0, 30 * 1000);
   const temp15 = meanField('temp', 14 * MIN, 16 * MIN);
   // 4. 温度骤降：现在比 15 分钟前低 5℃
-  add('温度骤降', 2, !isNaN(tempNow) && !isNaN(temp15) && tempNow <= temp15 - 5);
+  add('温度骤降', 2, !isNaN(tempNow) && !isNaN(temp15) && tempNow <= temp15 - 5,
+    '当前 ' + fmt(tempNow) + ' vs 15分钟前 ' + fmt(temp15) + ' ℃');
 
   const hum10 = meanField('hum', 0, 10 * MIN);
   const hum60 = meanField('hum', 55 * MIN, 65 * MIN);
   const humNow = meanField('hum', 0, 30 * 1000);
   // 5. 湿度骤升：10分钟均值比一小时前提升 ≥15%
-  add('湿度骤升', 2, !isNaN(hum10) && !isNaN(hum60) && hum60 > 0 && hum10 >= hum60 * 1.15);
+  add('湿度骤升', 2, !isNaN(hum10) && !isNaN(hum60) && hum60 > 0 && hum10 >= hum60 * 1.15,
+    '10min均值 ' + fmt(hum10) + ' vs 1h前 ' + fmt(hum60) + ' %');
   // 6. 湿度高且突然上升：≥80% 且一小时提升 ≥15%
-  add('湿度高且突然上升', 3, !isNaN(humNow) && !isNaN(hum60) && humNow >= 80 && hum60 > 0 && (humNow - hum60) / hum60 >= 0.15);
+  add('湿度高且突然上升', 3, !isNaN(humNow) && !isNaN(hum60) && humNow >= 80 && hum60 > 0 && (humNow - hum60) / hum60 >= 0.15,
+    '当前 ' + fmt(humNow) + ' ≥80% 且 1h内升 ' + pct((humNow - hum60) / hum60));
   // 7. 湿度接近饱和：≥90%
-  add('湿度接近饱和', 1, !isNaN(humNow) && humNow >= 90);
+  add('湿度接近饱和', 1, !isNaN(humNow) && humNow >= 90, '当前 ' + fmt(humNow) + ' ≥90%');
   // 8. 露点贴近气温：气温-露点 ≤2℃ 且 湿度 ≥70%
+  let dewDiff = null;
   if (!isNaN(tempNow) && !isNaN(humNow) && humNow >= 70) {
-    add('露点贴近气温', 2, (tempNow - dewPoint(tempNow, humNow)) <= 2);
+    dewDiff = tempNow - dewPoint(tempNow, humNow);
   }
+  add('露点贴近气温', 2, dewDiff != null && dewDiff <= 2,
+    dewDiff == null ? '湿度<70%，暂不参与' : '温差 ' + fmt(dewDiff) + ' ≤2℃');
 
   const level = score >= 8 ? 3 : score >= 6 ? 2 : score >= 4 ? 1 : 0;
-  return { score, level, rules, baselineKmh: isNaN(baselineKmh) ? null : baselineKmh, gustMs: isNaN(gustMs) ? null : gustMs };
+  const rules = ruleStates.filter(r => r.active).map(r => ({ name: r.name, pts: r.pts }));
+  return {
+    score, level, rules, ruleStates,
+    metrics: {
+      gustMs: isNaN(gustMs) ? null : gustMs,
+      mean2Ms: isNaN(mean2Ms) ? null : mean2Ms,
+      baselineMs: isNaN(baselineMs) ? null : baselineMs,
+      tempNow: isNaN(tempNow) ? null : tempNow,
+      temp15: isNaN(temp15) ? null : temp15,
+      hum10: isNaN(hum10) ? null : hum10,
+      hum60: isNaN(hum60) ? null : hum60,
+      humNow: isNaN(humNow) ? null : humNow,
+      dewDiff: dewDiff
+    },
+    baselineKmh: isNaN(baselineKmh) ? null : baselineKmh,
+    gustMs: isNaN(gustMs) ? null : gustMs
+  };
 }
 // ======================================
 
