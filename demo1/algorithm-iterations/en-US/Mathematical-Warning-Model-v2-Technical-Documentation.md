@@ -25,7 +25,7 @@
 ## 2. Algorithm Structure (v2)
 
 ```
-Final level = max(Debris flow D, Flash flood F, Wind, Flow spike, Surge)   ← 0~3
+Final level = max(Debris flow D, Flash flood F, Wind, Flow spike, Surge, Soil saturation)   ← 0~3
 ```
 
 **Level definitions (larger number = more severe):**
@@ -44,7 +44,7 @@ D = 0.30 × S̄ + 0.35 × Q̄ + 0.20 × dQ̄ + 0.15 × ΔS̄
 ```
 
 - Path skipped while soil < 60% (unsaturated) — flash flood / wind paths are **not** gated
-- **Special rules:** soil above local P90 + rising flow + 5-min continuous rise → Level 3 directly; soil 10-min rise ≥ 20% → at least Level 1
+- **Special rules:** soil above local P90 + rising flow + 5-min continuous rise → Level 3 directly; soil above local P90 + flow ≥ 70% of channel capacity → Level 2; soil 10-min rise ≥ 20% → at least Level 1
 
 ### 2.2 Flash Flood Path (independent index)
 
@@ -73,6 +73,16 @@ F = 0.60 × Q̄ + 0.40 × dQ̄
 |-------|---------|
 | Soil rises ≥ 20% within 5 s | Level 1 immediately |
 | Wind rises ≥ 12 km/h within 60 s | Level 1 immediately |
+
+### 2.6 Soil Saturation Path (new in v2)
+
+Soil ≥ 85% or above local P90 → **at least Level 1** (saturated soil is itself a hazard, independent of flow; persists until soil drops)
+
+### 2.7 Hysteresis Hold (new in v2, debounce)
+
+- Upgrade: takes effect immediately and is held
+- Downgrade: only after the hold time — Level 1: 10 s / Level 2: 15 s / Level 3: 20 s
+- Prevents level flickering from single-point jitter / momentary drops
 
 ---
 
@@ -131,5 +141,5 @@ ALARM:3 L3           ← warning level 0~3 (0=normal, 3=most severe)
 
 ## 8. Version Plan
 
-- **v2.x candidates:** calibrate surge thresholds from historical distribution (replacing empirical values); add persistence check (trigger only after N consecutive seconds above threshold, debounce)
+- **v2.x candidates:** calibrate surge thresholds from historical distribution (replacing empirical values); ~~add persistence check (trigger only after N consecutive seconds above threshold, debounce)~~ — implemented: hysteresis hold (Level 1: 10 s / Level 2: 15 s / Level 3: 20 s)
 - **v3 candidates:** wind sensor onboard (sensor migrated to the integrated board, removing external-computer dependency); LCD shows flash-flood F / debris-flow D values
