@@ -1,0 +1,12 @@
+{
+  "name": "wind-dashboard",
+  "version": "1.0.0",
+  "description": "风速传感器网页仪表盘：读 Arduino 串口数据，浏览器实时显示",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0"
+  }
+}
