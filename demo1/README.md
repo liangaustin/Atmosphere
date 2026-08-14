@@ -48,30 +48,35 @@
 ```
 demo 1/
 ├── README.md                 # 本文件（中英双语 + 版本历史）/ this file (bilingual + version history)
-├── zh-CN/                    # 中文版 / Chinese（按版本分文件夹 / one folder per version）
-│   ├── beta1/                # 第一版：原始算法 D<0.30，水泵 D7 开关
-│   │   ├── FlowSensor.ino
-│   │   ├── server.py
-│   │   └── 说明文档.md
-│   ├── beta2/                # 第二版：门槛 + 三级阈值 D<0.45
-│   │   ├── FlowSensor.ino
-│   │   ├── server.py
-│   │   └── 说明文档.md
-│   ├── beta3/                # 第三版：水泵 D9 PWM 调速 + 滑块 + 功率
-│   │   ├── FlowSensor.ino
-│   │   ├── server.py
-│   │   └── 说明文档.md
-│   └── beta4/                # 第四版（最新 · Demo 1 最终版）：尖峰滑动基准 + 整机功率
-│       ├── FlowSensor.ino
-│       ├── server.py
-│       └── 说明文档.md
+├── zh-CN/                    # 中文版 / Chinese（语言 → 算法 → 版本）
+│   └── algorithm-v1/         # 第一版算法：风速基准线 + 滑动基准（涵盖 beta1-4）
+│       ├── beta1/            # 第一版：原始算法 D<0.30，水泵 D7 开关
+│       │   ├── FlowSensor.ino
+│       │   ├── server.py
+│       │   └── 说明文档.md
+│       ├── beta2/            # 第二版：门槛 + 三级阈值 D<0.45
+│       │   ├── FlowSensor.ino
+│       │   ├── server.py
+│       │   └── 说明文档.md
+│       ├── beta3/            # 第三版：水泵 D9 PWM 调速 + 滑块 + 功率
+│       │   ├── FlowSensor.ino
+│       │   ├── server.py
+│       │   └── 说明文档.md
+│       └── beta4/            # 第四版（最新 · Demo 1 最终版）：尖峰滑动基准 + 整机功率
+│           ├── FlowSensor.ino
+│           ├── server.py
+│           └── 说明文档.md
 ├── en-US/                    # 英文版 / English（同结构 / same structure）
-│   ├── beta1/ … beta4/       # 每版含 FlowSensor.ino + server.py + Documentation.md
+│   └── algorithm-v1/         # Algorithm v1: wind baseline + sliding baseline
+│       ├── beta1/ … beta4/   # 每版含 FlowSensor.ino + server.py + Documentation.md
+├── weather/                  # 风速 + 温湿度模块（网络服务 + Arduino）
 └── media/                    # 图片与视频 / photos & videos
     ├── *.jpg
     ├── *.mp4
     └── *.mov
 ```
+
+> 📂 **结构说明 / Structure note**：中间层为**算法版本**（`algorithm-v1` = 第一版算法：风速基准线 + 滑动基准）。beta1-4 是第一版算法内部的 4 次实现迭代。后续算法迭代（如补全曼宁公式的 v2）将新增 `algorithm-v2/` 目录，与 v1 并行归档。
 
 ---
 
