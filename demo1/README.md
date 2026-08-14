@@ -89,10 +89,10 @@
 ```
 demo 1/
 ├── README.md                    # 本文件（中英双语导航）
-├── zh-CN/                       # 中文版（语言 → 算法 → 版本）
-│   ├── algorithm-v1/            # 第一版算法：风速基准线 + 滑动基准（beta1-4）
+├── zh-CN/                       # 中文版（语言 → 算法版本 → 实现迭代）
+│   ├── 第一版算法部分/           # 第一版算法：风速基准线 + 滑动基准（beta1-4）
 │   │   ├── beta1/ … beta4/      # 每版：FlowSensor.ino + server.py + 说明文档.md
-│   └── algorithm-v2/            # 第二版算法：标定对齐 + 快速滑动基准（beta5 起）
+│   └── 第二版算法部分/           # 第二版算法：标定对齐 + 快速滑动基准（beta5 起）
 │       └── beta5/               # LCD 显示 + 算法 v2 + 风速接入
 ├── en-US/                       # 英文版（同结构 / same structure）
 │   ├── algorithm-v1/beta1-4/
@@ -110,7 +110,7 @@ demo 1/
 
 ```bash
 # 1. 烧录固件（Arduino IDE，板卡 Nano + 新 Bootloader，115200）
-#    zh-CN/algorithm-v2/beta5/FlowSensor.ino
+#    zh-CN/第二版算法部分/beta5/FlowSensor.ino
 
 # 2. 启动服务端（串口 /dev/cu.usbserial-14120）
 python3 -u server.py
