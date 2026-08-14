@@ -8,9 +8,9 @@
 
 ## 📖 项目简介 / Overview
 
-**中文**：Atmosphere 面向野外溪流、漂流点等场景，实时采集土壤湿度、水流流速、风速三类环境数据，通过网页实时监控，并用数学模型（泥石流危险指数 + 山洪曼宁/尖峰检测）输出分级预警，辅助判断山洪、泥石流风险。Demo 1 已打通「采集 → 控制 → 监控 → 预警」全链路。
+**中文**：Atmosphere 面向野外溪流、漂流点等场景，实时采集土壤湿度、水流流速、风速三类环境数据，通过网页实时监控，并用数学模型（泥石流危险指数 + 山洪流量近似/尖峰检测）输出分级预警，辅助判断山洪、泥石流风险。Demo 1 已打通「采集 → 控制 → 监控 → 预警」全链路。
 
-**English**: Atmosphere monitors soil moisture, water flow, and wind speed in real time at outdoor streams and drifting sites. It provides a live web dashboard and outputs graded early warnings via mathematical models (debris-flow danger index + flash-flood Manning / spike detection) to help assess flash-flood and debris-flow risk. Demo 1 completes the full "sense → control → monitor → warn" pipeline.
+**English**: Atmosphere monitors soil moisture, water flow, and wind speed in real time at outdoor streams and drifting sites. It provides a live web dashboard and outputs graded early warnings via mathematical models (debris-flow danger index + flash-flood flow approximation / spike detection) to help assess flash-flood and debris-flow risk. Demo 1 completes the full "sense → control → monitor → warn" pipeline.
 
 ---
 
@@ -69,6 +69,7 @@ demo 1/
 ├── en-US/                    # 英文版 / English（同结构 / same structure）
 │   └── algorithm-v1/         # Algorithm v1: wind baseline + sliding baseline
 │       ├── beta1/ … beta4/   # 每版含 FlowSensor.ino + server.py + Documentation.md
+├── algorithm-iterations/     # 算法迭代文档归档（v1/v2 技术文档，zh-CN + en-US）
 ├── weather/                  # 风速 + 温湿度模块（网络服务 + Arduino）
 └── media/                    # 图片与视频 / photos & videos
     ├── *.jpg
@@ -76,7 +77,7 @@ demo 1/
     └── *.mov
 ```
 
-> 📂 **结构说明 / Structure note**：中间层为**算法版本**（`algorithm-v1` = 第一版算法：风速基准线 + 滑动基准）。beta1-4 是第一版算法内部的 4 次实现迭代。后续算法迭代（如补全曼宁公式的 v2）将新增 `algorithm-v2/` 目录，与 v1 并行归档。
+> 📂 **结构说明 / Structure note**：中间层为**算法版本**（`algorithm-v1` = 第一版算法：风速基准线 + 滑动基准）。beta1-4 是第一版算法内部的 4 次实现迭代。后续算法迭代（数学预警模型 v2 等）归档于 `algorithm-iterations/`（中英技术文档），与 v1 并行。
 
 ---
 
@@ -91,8 +92,8 @@ Demo 1 代码按迭代版本归档（beta1 → beta4），每版独立文件夹�
 | **beta3**（第三版） | 水泵改 D9 PWM 调速 + 网页滑块（0~100%）+ 功率显示（单泵满载 1.25W） |
 | **beta4**（第四版 · **Demo 1 最终版**） | 尖峰检测改滑动基准（自适应 P95）+ 功率改整机功率（固定 0.4W + 占空比×泵） |
 
-> 🏁 **版本规划 / Version Plan**：**beta4 是 Demo 1 的最终版本**，Demo 1 到此完结，不再出 beta5。后续开发转入 **Demo 2**——新增超声波水位传感器，补全山洪预警曼宁公式 70% 分量（当前缺水位 h）。
-> 🏁 **Version plan**: **beta4 is the final version of Demo 1**; Demo 1 is complete and there will be no beta5. Development moves to **Demo 2** — adding an ultrasonic water-level sensor to complete the 70% Manning component of flash-flood warning (currently missing depth h).
+> 🏁 **版本规划 / Version Plan**：**beta4 是 Demo 1 的最终版本**，Demo 1 到此完结，不再出 beta5。后续进入**算法迭代阶段**：数学预警模型 v1 → v2（传感器标定对齐 YF-S401 实测量程、滑动基准冷启动缩短至 15 分钟、预警等级规范为 0=正常 / 1=一级 / 2=二级 / 3=三级且 3=最高）。~~超声波水位方案已砍掉~~（水位与流速传感器功能重叠，不做曼宁公式 70% 分量）。迭代文档归档于 `algorithm-iterations/`。
+> 🏁 **Version plan**: **beta4 is the final version of Demo 1**; Demo 1 is complete and there will be no beta5. Development then moves to the **algorithm iteration phase**: mathematical warning model v1 → v2 (sensor calibration aligned with the measured YF-S401 range, sliding-baseline cold start shortened to 15 minutes, warning levels standardized to 0=Normal / 1=Level 1 / 2=Level 2 / 3=Level 3 with 3 = most severe). ~~The ultrasonic water-level plan is dropped~~ (water level overlaps with the flow sensor; the 70% Manning component will not be implemented). Iteration docs are archived under `algorithm-iterations/`.
 
 > `.ino` 固件只有两个变体：D7 数字开关版（beta1/2）与 D9 PWM 调速版（beta3/4）；门槛/阈值/尖峰/功率等逻辑改动都在 `server.py`。
 > The `.ino` firmware has only two variants: D7 on/off (beta1/2) and D9 PWM (beta3/4); all gate/threshold/spike/power logic changes live in `server.py`.
@@ -141,20 +142,22 @@ D = 0.40·S̄ + 0.30·Q̄ + 0.20·dQ̄ + 0.10·ΔS̄
 
 **Special rules**: high soil moisture + 5-min sustained flow rise → Level 1; high soil moisture + high flow → Level 2; soil rise ≥20% → at least Level 3.
 
-### 山洪 / Flash Flood（部分落地 / partially implemented）
+### 山洪 / Flash Flood（已落地 / implemented）
 
-- **曼宁公式 70% / Manning 70%**：`V = (1/n)·R^(2/3)·S^(1/2)` —— 需超声波水位传感器（河道水位 h）与河道流速，当前暂缺，未落地。
-- **Manning 70%**: `V = (1/n)·R^(2/3)·S^(1/2)` — requires an ultrasonic water-level sensor (channel depth h) and channel velocity, not yet implemented.
-- **尖峰检测 30% / Spike detection 30%**：用流量秒级变化率近似，滑动基准自适应（对比当地流量变化率历史分布，超 P95 判高风险）。
-- **Spike 30%**: approximated by per-second flow change rate; sliding-baseline adaptive (vs local flow-change history, >P95 = high risk).
+- **曼宁公式 70% 分量 / Manning 70% component**：~~原计划用超声波水位传感器补全，方案已砍掉~~（水位与流速传感器功能重叠，流速为核心，不做曼宁 70%）。
+- **Manning 70%**: ~~planned with an ultrasonic water-level sensor; the plan is dropped~~ (water level overlaps with the flow sensor; flow is the core, no Manning 70%).
+- **流量近似路径 / Flow-approximation path**（算法 v2 起 / since v2）：`F = 0.60·Q̄ + 0.40·dQ̄`，独立于土壤门槛，流量暴涨即触发。
+- **Flow-approximation path**: `F = 0.60·Q̄ + 0.40·dQ̄`, independent of the soil gate — triggers on flow surge alone.
+- **尖峰检测 / Spike detection**：用流量秒级变化率近似，滑动基准自适应（对比当地流量变化率历史分布，超 P95 判高风险）。
+- **Spike detection**: approximated by per-second flow change rate; sliding-baseline adaptive (vs local flow-change history, >P95 = high risk).
 
 ### 滑动基准 / Sliding Baseline（气候自适应 / climate-adaptive）
 
-**中文**：为避免绝对值阈值（如「土壤湿度 60%」）在不同地区气候下不适用，模型维护一个 **24 小时滑动窗口**，用 P10/P95 分位数把当前值映射为「相对当地正常范围的偏离程度（0~1）」。数据积累 **2 小时**后自动启用；不足时回退到绝对值阈值。
+**中文**：为避免绝对值阈值（如「土壤湿度 60%」）在不同地区气候下不适用，模型维护一个 **24 小时滑动窗口**，用 P10/P95 分位数把当前值映射为「相对当地正常范围的偏离程度（0~1）」。数据积累 **2 小时**后自动启用（算法 v2 起缩短为 **15 分钟**）；不足时回退到绝对值阈值。
 
-**English**: To avoid fixed thresholds (e.g. "soil moisture 60%") not fitting different climates, the model keeps a **24-hour sliding window** and maps the current value onto the P10/P95 percentile range, yielding a "relative deviation from local normal (0~1)". It activates after **2 hours** of data; before that it falls back to absolute thresholds.
+**English**: To avoid fixed thresholds (e.g. "soil moisture 60%") not fitting different climates, the model keeps a **24-hour sliding window** and maps the current value onto the P10/P95 percentile range, yielding a "relative deviation from local normal (0~1)". It activates after **2 hours** of data (shortened to **15 minutes** since algorithm v2); before that it falls back to absolute thresholds.
 
-### 预警档位 / Warning Levels（一级最严重 / Level 1 = most severe）
+### 预警档位 / Warning Levels（v1：一级最严重 / v1: Level 1 = most severe）
 
 | 档位 / Level | 颜色 / Color | 泥石流 D 阈值 / Debris-flow D |
 | --- | --- | --- |
@@ -163,6 +166,9 @@ D = 0.40·S̄ + 0.30·Q̄ + 0.20·dQ̄ + 0.10·ΔS̄
 | 🟠 二级 Level 2 | 橙 Orange | 0.55 ≤ D < 0.75 |
 | 🔴 一级 Level 1 | 红 Red | D ≥ 0.75 |
 
+> 📌 上表为 Demo 1（v1）档位体系。**算法 v2 起等级规范为 0=正常 / 1=一级 / 2=二级 / 3=三级（3=最高）**，详见 `algorithm-iterations/`。
+> 📌 The table above is the Demo 1 (v1) level system. **Since algorithm v2 the levels are standardized as 0=Normal / 1=Level 1 / 2=Level 2 / 3=Level 3 (3 = most severe)** — see `algorithm-iterations/`.
+
 ---
 
 ## ⚠️ 已知问题 / Known Issues
@@ -170,8 +176,8 @@ D = 0.40·S̄ + 0.30·Q̄ + 0.20·dQ̄ + 0.10·ΔS̄
 1. **水泵供电 / Pump power**：水泵从 Arduino 取电，高速时电流大仍会拉垮 5V 断电复位（PWM 软启动已缓解启动冲击，但治标不治本）。**需改为独立供电**（单独 5V 电源，VCC 不再接 Arduino 5V，只共地）。
    **Pump powered from Arduino** sags the 5V rail under high speed, resetting the board (PWM soft-start eases inrush but is not a cure). **Use an independent power supply** (separate 5V source; pump VCC no longer on Arduino 5V, only common ground).
 
-2. **山洪曼宁 / Flash-flood Manning**：缺超声波水位传感器，70% 分量未落地 —— **Demo 2 将补全**。
-   **Missing ultrasonic water-level sensor**; the 70% Manning component is not implemented — **to be completed in Demo 2**.
+2. **山洪曼宁 / Flash-flood Manning**：~~原计划 Demo 2 用超声波水位传感器补全曼宁 70% 分量，方案已砍掉~~（水位与流速功能重叠），由流量近似路径 `F = 0.60·Q̄ + 0.40·dQ̄`（算法 v2）替代。
+   **Flash-flood Manning**: ~~the plan to complete the 70% Manning component with an ultrasonic water-level sensor in Demo 2 is dropped~~ (water level overlaps with flow), replaced by the flow-approximation path `F = 0.60·Q̄ + 0.40·dQ̄` (algorithm v2).
 
 3. **尖峰回退阈值 / Spike fallback threshold**：滑动基准数据不足（<2h）时回退到固定阈值 `2.0 L/min/s`，此参数待实测标定。
    **Spike fallback threshold** `2.0 L/min/s` (used before the sliding baseline has 2h of data) still needs field calibration.
