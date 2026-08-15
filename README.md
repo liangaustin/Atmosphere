@@ -37,6 +37,28 @@
 
 软件显示界面将落地安装在野泳池及漂流起终点旁的电子显示屏（电视）周边。这种"现场投屏"设计，确保岸边巡视人员及救生员能够直观、实时获取警报状态，极大缩短从"发现险情"到"实施救援"的反应链路，可以让人们危险来临前尽快撤离，保卫安全。
 
+---
+
+### 仓库结构
+
+| 目录 | 内容 | 负责人 |
+|------|------|--------|
+| `demo1/` | Demo 1 完整实现（中英双语 + beta1~beta4 版本 + 媒体素材，含独立 README） | 全队 |
+| `demo1/weather/` | 风速 + 温湿度监测模块（Demo 集成版） | 王立辉 |
+| `wanglihui/` | 硬件模块源码：风速传感器基础版 + 风速/温湿度完整版（含网页仪表盘） | 王立辉 |
+| `AustinLiang/` | 综合监控 Web APP（土壤湿度 + 流速 + 水泵控制） | 梁振宇 |
+| `GJJ/` | 3D 模型、技术方案与宣传文案 | - |
+
+---
+
+### 硬件模块：风速 + 温湿度监测（王立辉）
+
+野外溪流/漂流点场景的气象监测单元，为山洪/泥石流预警提供风速、温度、湿度数据：
+
+- **风速**：三杯式风速计（0~5V 模拟输出 → A0），`风速(km/h) = 100 × 电压`，超过 10 km/h 触发板载 LED 报警
+- **温湿度**：DHT11 数字传感器
+- **完整版**：Arduino 串口 CSV 输出（电压,风速,温度,湿度）→ `wind_server.py` 转发（HTTP :8001/wind）→ 网页仪表盘（:3000）：实时风速/温湿度曲线、阵风峰值、30 分钟滑动基准线、8 条规则分级预警（黄/橙/红三级）
+- 模块文档见 [`demo1/weather/README.md`](demo1/weather/README.md)，完整代码见 [`wanglihui/风速+温湿度/`](wanglihui/风速+温湿度/)
 
 ---
 
@@ -68,6 +90,29 @@
 #### 3. On-Site Deployment Plan
 
 The software display interface will be installed on electronic display screens (TVs) near wild swimming pools and drift starting/ending points. This "on-site casting" design ensures that shore patrol personnel and lifeguards can intuitively and real-time obtain alert status, greatly shortening the response chain from "discovering danger" to "implementing rescue", allowing people to evacuate as soon as possible before danger arrives and ensuring safety.
+
+---
+
+### Repository Structure
+
+| Folder | Content | Owner |
+|--------|---------|-------|
+| `demo1/` | Demo 1 full implementation (bilingual, beta1–beta4 versions, media, own README) | All |
+| `demo1/weather/` | Wind speed + temperature/humidity module (Demo-integrated) | Wang Li Hui |
+| `wanglihui/` | Hardware module source: wind sensor basic + wind/temp/humidity full version (web dashboard) | Wang Li Hui |
+| `AustinLiang/` | Comprehensive monitoring Web APP (soil moisture + flow + pump control) | Liang Austin |
+| `GJJ/` | 3D models, technical proposal & slogans | - |
+
+---
+
+### Hardware Module: Wind Speed + Temperature/Humidity (Wang Li Hui)
+
+Weather monitoring unit for outdoor streams / drifting sites, feeding wind, temperature and humidity data into the flash-flood / debris-flow early warning system:
+
+- **Wind**: 3-cup anemometer (0–5 V analog → A0), `km/h = 100 × V`, onboard LED alarm when > 10 km/h
+- **Temp/Humidity**: DHT11 digital sensor
+- **Full version**: Arduino CSV over serial (voltage, wind, temp, humidity) → `wind_server.py` (HTTP :8001/wind) → web dashboard (:3000): live wind/temp/humidity charts, gust peaks, 30-min sliding baseline, 8-rule graded warnings (yellow/orange/red)
+- Module docs: [`demo1/weather/README.md`](demo1/weather/README.md); full source: [`wanglihui/风速+温湿度/`](wanglihui/风速+温湿度/)
 
 ---
 

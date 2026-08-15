@@ -11,7 +11,8 @@ import serial, time, json, re, math, threading, http.server
 SERIAL_PORT = "COM3"   # Arduino 串口号（设备管理器里查看，改这里）
 WEB_PORT = 8001        # HTTP 端口
 
-latest = {"wind_ms": 0.0, "wind_kmh": 0.0, "time": "", "temp": None, "hum": None}
+# 温湿度传感器已迁移：不再上报 temp/hum，只保留风速
+latest = {"wind_ms": 0.0, "wind_kmh": 0.0, "time": ""}
 
 def num(x):
     """安全转 float：NaN/空值 → None"""
@@ -51,8 +52,6 @@ def read_serial():
                 if r:
                     latest["wind_kmh"] = r[0]
                     latest["wind_ms"] = r[1]
-                    latest["temp"] = r[2]
-                    latest["hum"] = r[3]
                     latest["time"] = time.strftime("%H:%M:%S")
         except Exception as e:
             print("serial error, retry in 5s:", e, flush=True)
