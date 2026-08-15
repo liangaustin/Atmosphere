@@ -1,45 +1,86 @@
-# Atmosphere — 山洪 + 泥石流智能监测预警系统
-# Atmosphere — Flash Flood & Debris Flow Monitoring & Early Warning
+# 🌊 Atmosphere — Demo 1
 
-> **Demo 1** · 野外溪流 / 漂流点山洪与泥石流智能监测预警
-> **Demo 1** · Smart flash-flood & debris-flow early warning for outdoor streams / drifting sites
+> **山洪 + 泥石流智能监测预警 · 野外溪流 / 漂流点**
+> **Flash-flood & debris-flow early warning for outdoor streams & drifting sites**
+
+[![GitHub](https://img.shields.io/badge/GitHub-liangaustin%2FAtmosphere-4fc3f7)](https://github.com/liangaustin/Atmosphere)
+[![Board](https://img.shields.io/badge/Board-Arduino%20Nano-00979D)](#-硬件连接--hardware-wiring)
+[![Sensor](https://img.shields.io/badge/Sensors-Soil%20%7C%20Flow%20%7C%20Wind%20%7C%20DHT11-43a047)](#-硬件连接--hardware-wiring)
+[![Model](https://img.shields.io/badge/Model-v2%20%7C%20Sliding%20Baseline-fb8c00)](#-预警模型--warning-model)
+[![Web](https://img.shields.io/badge/Web-8080%20Dashboard-42a5f5)](#-快速开始--quick-start)
+
+---
+
+## 📑 目录 / Contents
+
+- [📖 项目简介 / Overview](#-项目简介--overview)
+- [🎯 应用场景 / Scenarios](#-应用场景--scenarios)
+- [🏗️ 系统架构 / Architecture](#%EF%B8%8F-系统架构--architecture)
+- [🔌 硬件连接 / Hardware Wiring](#-硬件连接--hardware-wiring)
+- [📁 目录结构 / Folder Structure](#-目录结构--folder-structure)
+- [🚀 快速开始 / Quick Start](#-快速开始--quick-start)
+- [🧠 预警模型 / Warning Model](#-预警模型--warning-model)
+- [📜 版本历史 / Version History](#-版本历史--version-history)
+- [📄 文档索引 / Docs](#-文档索引--docs)
+- [⚠️ 已知问题 / Known Issues](#️-已知问题--known-issues)
 
 ---
 
 ## 📖 项目简介 / Overview
 
-**中文**：Atmosphere 面向野外溪流、漂流点等场景，实时采集土壤湿度、水流流速、风速三类环境数据，通过网页实时监控，并用数学模型（泥石流危险指数 + 山洪曼宁/尖峰检测）输出分级预警，辅助判断山洪、泥石流风险。Demo 1 已打通「采集 → 控制 → 监控 → 预警」全链路。
+**中文**：Atmosphere 面向野外溪流、漂流点等场景，实时采集**土壤湿度、水流速、风速、温湿度**四类环境数据，通过网页与 LCD 双端监控，用数学模型（泥石流危险指数 + 山洪流量近似 + 滑动基准 + 滞回保持）输出 **0~3 分级预警**，辅助判断山洪、泥石流风险。Demo 1 打通「采集 → 控制 → 监控 → 预警」全链路。
 
-**English**: Atmosphere monitors soil moisture, water flow, and wind speed in real time at outdoor streams and drifting sites. It provides a live web dashboard and outputs graded early warnings via mathematical models (debris-flow danger index + flash-flood Manning / spike detection) to help assess flash-flood and debris-flow risk. Demo 1 completes the full "sense → control → monitor → warn" pipeline.
+**English**: Atmosphere monitors soil moisture, water flow, wind speed, and temperature/humidity at outdoor streams and drifting sites. It provides live monitoring via web dashboard **and on-site LCD**, and outputs **0–3 graded warnings** via mathematical models (debris-flow danger index + flash-flood flow approximation + sliding baseline + hysteresis hold). Demo 1 completes the full "sense → control → monitor → warn" pipeline.
 
 ---
 
-## ✨ 功能特性 / Features
+## 🎯 应用场景 / Scenarios
 
-| 功能 / Feature | 说明 / Description |
+| 场景 / Scenario | 系统做什么 / What the system does |
 | --- | --- |
-| 🌱 土壤湿度 / Soil moisture | AO 模拟量 + DO 数字断线检测，百分比显示 |
-| 💧 流速 / Flow | YF-S401 霍尔传感器，实时流速（L/min）+ 累计流量 |
-| 🌬️ 风速 / Wind | 三杯式风速传感器（另一台电脑采集，HTTP 转发集成） |
-| 🚰 水泵控制 / Pump control | 网页滑块 PWM 调速（0~100%）+ 软启动 + 整机功率显示，控制 D9 |
-| 🌐 Web 监控 / Web dashboard | 端口 8080，实时数据 + 气象 + 预警卡片 |
-| 🧠 预警模型 / Warning model | 泥石流危险指数 + 山洪尖峰 + 滑动基准 + 分级档位 |
+| 🏞️ 漂流点 / Drifting sites | 上游暴雨时水流暴涨 → 山洪路径 F 秒级响应，现场 LCD 显示预警等级 |
+| 🏔️ 泥石流沟谷 / Debris-flow valleys | 土壤饱和（≥85% 或超当地 P90）→ 持续一级预警，不依赖流量 |
+| 🌪️ 强对流天气 / Severe convection | 风速 ≥25/40/60 km/h 分级预警 + 60 秒突涨 12 km/h 秒级升级 |
+| 📡 偏远无网现场 / Remote sites | LCD 本地显示四路核心数据，网页仅作中控台 |
+
+---
+
+## 🏗️ 系统架构 / Architecture
+
+```
+┌─────────────┐   ┌──────────────┐   ┌───────────────┐
+│ Arduino Nano│──▶│  server.py    │──▶│  Web :8080    │
+│ 土壤/流速/DHT│   │  模型 v2 计算 │   │  曲线+预警卡  │
+│ 水泵 PWM/LCD │◀──│  LCD 下发     │   └───────────────┘
+└─────────────┘   │  (D行协议)    │
+     ▲ 115200     └──────▲───────┘
+     │                    │ HTTP
+┌────┴─────────┐  ┌───────┴──────┐
+│ 风速电脑 :8001│──│ 另一台 OpenClaw│（协作开发）
+│ wind JSON    │  │  :8131        │
+└──────────────┘  └──────────────┘
+```
+
+- **采集端**：Arduino Nano（土壤 A2/D2、流速 D8、DHT11 D4、水泵 D9、LCD I2C）
+- **服务端**：`server.py`（串口 115200 + 模型推理 + 网页 8080 + LCD 数据下发）
+- **风速**：外部电脑 HTTP `192.168.1.200:8001/wind` 接入（LCD 显示 + 预警模型）
 
 ---
 
 ## 🔌 硬件连接 / Hardware Wiring
 
-**主控 / Controller**：Arduino Nano（ATmega328P，新 Bootloader）
+**主控 / Controller**：Arduino Nano（ATmega328P，新 Bootloader，串口 115200）
 
 | 设备 / Device | 接线 / Wiring |
 | --- | --- |
-| 土壤湿度传感器 / Soil moisture sensor | AO→A2，DO→D2，VCC→5V，GND→GND |
-| 流速传感器 YF-S401 / Flow sensor | 红 Red→5V，黄 Yellow→D8（信号 signal），黑 Black→GND |
-| 水泵 / Pump | D9（**PWM 调速 / PWM speed control**，占空比越大越快，软启动） |
-| 风速传感器 / Wind sensor | 另一台电脑 Arduino UNO A0（0~5V 三杯式），HTTP 转发 |
+| 土壤湿度 / Soil moisture | AO→A2，DO→D2，VCC→5V，GND→GND |
+| 流速 YF-S401 / Flow | 红 Red→5V，黄 Yellow→D8（信号），黑 Black→GND |
+| 温湿度 DHT11 | s→D4，v→5V，g→GND |
+| 水泵 / Pump | D9（PWM 调速，软启动，**独立供电 + 共地**） |
+| LCD 1602 (I2C) | SCL→A5，SDA→A4（地址 0x27） |
+| 风速 / Wind | 外部电脑 Arduino UNO A0（0~5V 三杯式），HTTP 转发 |
 
-> ⚠️ 流速传感器 YF-S401 最小启动流量 0.3 L/min，低于此值转子不转；流量换算系数 **3433.8**（脉冲数 / 3433.8 = 升）。
-> ⚠️ YF-S401 minimum flow is 0.3 L/min; below this the rotor does not spin. Conversion factor **3433.8** (pulses / 3433.8 = liters).
+> ⚠️ YF-S401 实测量程 **0.05~3 L/min**，系数 3433.8（脉冲数 / 3433.8 = 升）；低于启动流量转子不转。
 
 ---
 
@@ -47,135 +88,92 @@
 
 ```
 demo 1/
-├── README.md                 # 本文件（中英双语 + 版本历史）/ this file (bilingual + version history)
-├── zh-CN/                    # 中文版 / Chinese（按版本分文件夹 / one folder per version）
-│   ├── beta1/                # 第一版：原始算法 D<0.30，水泵 D7 开关
-│   │   ├── FlowSensor.ino
-│   │   ├── server.py
-│   │   └── 说明文档.md
-│   ├── beta2/                # 第二版：门槛 + 三级阈值 D<0.45
-│   │   ├── FlowSensor.ino
-│   │   ├── server.py
-│   │   └── 说明文档.md
-│   ├── beta3/                # 第三版：水泵 D9 PWM 调速 + 滑块 + 功率
-│   │   ├── FlowSensor.ino
-│   │   ├── server.py
-│   │   └── 说明文档.md
-│   └── beta4/                # 第四版（最新 · Demo 1 最终版）：尖峰滑动基准 + 整机功率
-│       ├── FlowSensor.ino
-│       ├── server.py
-│       └── 说明文档.md
-├── en-US/                    # 英文版 / English（同结构 / same structure）
-│   ├── beta1/ … beta4/       # 每版含 FlowSensor.ino + server.py + Documentation.md
-└── media/                    # 图片与视频 / photos & videos
-    ├── *.jpg
-    ├── *.mp4
-    └── *.mov
+├── README.md                    # 本文件（中英双语导航）
+├── zh-CN/                       # 中文版（语言 → 算法版本 → 实现迭代）
+│   ├── 第一版算法部分/           # 第一版算法：风速基准线 + 滑动基准（beta1-4）
+│   │   ├── beta1/ … beta4/      # 每版：FlowSensor.ino + server.py + 说明文档.md
+│   └── 第二版算法部分/           # 第二版算法：标定对齐 + 快速滑动基准（beta5 起）
+│       └── beta5/               # LCD 显示 + 算法 v2 + 风速接入
+├── en-US/                       # 英文版（同结构 / same structure）
+│   ├── algorithm-v1/beta1-4/
+│   └── algorithm-v2/beta5/
+├── algorithm-iterations/        # 数学预警模型技术文档（v1/v2，中英）
+├── weather/                     # 风速 + 温湿度模块（网络服务 + Arduino）
+└── media/                       # 图片与视频
 ```
 
----
-
-## 📜 版本历史 / Version History
-
-Demo 1 代码按迭代版本归档（beta1 → beta4），每版独立文件夹，改动如下：
-
-| 版本 / Version | 核心改动 / Key changes |
-| --- | --- |
-| **beta1**（第一版） | 原始算法：泥石流 D<0.30 无门槛；水泵 D7 数字开关（串口单字节 '1'/'0'） |
-| **beta2**（第二版） | 加门槛（土壤<60% 判安全）+ 三级阈值 0.30→0.45；水泵仍 D7 开关 |
-| **beta3**（第三版） | 水泵改 D9 PWM 调速 + 网页滑块（0~100%）+ 功率显示（单泵满载 1.25W） |
-| **beta4**（第四版 · **Demo 1 最终版**） | 尖峰检测改滑动基准（自适应 P95）+ 功率改整机功率（固定 0.4W + 占空比×泵） |
-
-> 🏁 **版本规划 / Version Plan**：**beta4 是 Demo 1 的最终版本**，Demo 1 到此完结，不再出 beta5。后续开发转入 **Demo 2**——新增超声波水位传感器，补全山洪预警曼宁公式 70% 分量（当前缺水位 h）。
-> 🏁 **Version plan**: **beta4 is the final version of Demo 1**; Demo 1 is complete and there will be no beta5. Development moves to **Demo 2** — adding an ultrasonic water-level sensor to complete the 70% Manning component of flash-flood warning (currently missing depth h).
-
-> `.ino` 固件只有两个变体：D7 数字开关版（beta1/2）与 D9 PWM 调速版（beta3/4）；门槛/阈值/尖峰/功率等逻辑改动都在 `server.py`。
-> The `.ino` firmware has only two variants: D7 on/off (beta1/2) and D9 PWM (beta3/4); all gate/threshold/spike/power logic changes live in `server.py`.
+> 📂 **结构约定**：中间层 = **算法版本**（v1/v2），最内层 = **实现迭代**（beta）。beta1-4 属第一版算法；beta5 起属第二版算法（数学预警模型 v2，详见 `algorithm-iterations/`）。
 
 ---
 
 ## 🚀 快速开始 / Quick Start
 
-**中文**：
-1. 用 Arduino IDE 编译并上传 `zh-CN/FlowSensor.ino`（或英文版）到 Arduino Nano。
-2. 运行 `python3 -u server.py`（串口 `/dev/cu.usbserial-14120`）。
-3. 浏览器打开 `http://localhost:8080`。
+```bash
+# 1. 烧录固件（Arduino IDE，板卡 Nano + 新 Bootloader，115200）
+#    zh-CN/第二版算法部分/beta5/FlowSensor.ino
 
-**English**:
-1. Compile & upload `en-US/FlowSensor.ino` (or the Chinese version) to the Arduino Nano using Arduino IDE.
-2. Run `python3 -u server.py` (serial port `/dev/cu.usbserial-14120`).
-3. Open `http://localhost:8080` in a browser.
+# 2. 启动服务端（串口 /dev/cu.usbserial-14120）
+python3 -u server.py
 
-> 风速来自另一台电脑的 HTTP 服务 `http://192.168.1.200:8001/wind`，需保持该服务在线。
-> Wind data comes from another computer's HTTP service at `http://192.168.1.200:8001/wind`; keep it online.
+# 3. 打开网页
+http://localhost:8080
+```
+
+> 风速来自 `http://192.168.1.200:8001/wind`，需保持该服务在线（10 秒窗口判在线）。
 
 ---
 
 ## 🧠 预警模型 / Warning Model
 
-### 泥石流 / Debris Flow（已完整落地 / fully implemented）
+详细技术文档（中英双语、含优势/缺陷/迭代记录）见 **`algorithm-iterations/`**：
 
-危险指数 / Danger index：
-
-```
-D = 0.40·S̄ + 0.30·Q̄ + 0.20·dQ̄ + 0.10·ΔS̄
-```
-
-| 因子 / Factor | 含义 / Meaning |
+| 文档 / Doc | 内容 / Content |
 | --- | --- |
-| S̄ | 土壤湿度归一化 / normalized soil moisture |
-| Q̄ | 流量归一化 / normalized flow |
-| dQ̄ | 流量突变 / flow spike |
-| ΔS̄ | 土壤湿度涨幅 / soil-moisture rise |
+| [v1 第一版技术文档](./algorithm-iterations/zh-CN/数学预警模型第一版技术文档.md) | 风速基准线 + 滑动基准（beta1-4） |
+| [v2 第二版技术文档](./algorithm-iterations/zh-CN/数学预警模型第二版技术文档.md) | 标定对齐 + 快速滑动基准（beta5 起） |
 
-**门槛 / Gate**：土壤湿度 < 60%（土体未饱和）时直接判安全，泥石流起不来，不参与 D 分级。
+**一句话版 / TL;DR**：
 
-**Gate**: soil moisture < 60% (not saturated) is judged safe directly — debris flow cannot initiate — and does not enter D leveling.
+```
+最终等级 = max(泥石流 D, 山洪 F, 风速, 流量尖峰, 突变, 土壤饱和)   ← 0~3
+D = 0.30·S̄ + 0.35·Q̄ + 0.20·dQ̄ + 0.15·ΔS̄     （泥石流，土壤<60% 跳过）
+F = 0.60·Q̄ + 0.40·dQ̄                          （山洪，不受土壤门槛限制）
+```
 
-**特殊规则 / Special rules**：土壤高湿 + 流量连涨 5 分钟 → 直接升到一级；土壤高湿且流量高 → 二级；土壤湿度涨幅 ≥20% → 至少三级。
+- **等级 / Levels**：0=正常 · 1=一级 · 2=二级 · **3=三级（最高）**
+- **滑动基准**：24h 窗口 [P10,P95] 归一化，冷启动 **15 分钟**
+- **滞回保持**：触发后保持（一级 10s / 二级 15s / 三级 20s），防抖
+- **标定**：Q_MAX=3 L/min、DQ_MAX=0.5、尖峰回退 /0.5（对齐 YF-S401 实测）
 
-**Special rules**: high soil moisture + 5-min sustained flow rise → Level 1; high soil moisture + high flow → Level 2; soil rise ≥20% → at least Level 3.
+---
 
-### 山洪 / Flash Flood（部分落地 / partially implemented）
+## 📜 版本历史 / Version History
 
-- **曼宁公式 70% / Manning 70%**：`V = (1/n)·R^(2/3)·S^(1/2)` —— 需超声波水位传感器（河道水位 h）与河道流速，当前暂缺，未落地。
-- **Manning 70%**: `V = (1/n)·R^(2/3)·S^(1/2)` — requires an ultrasonic water-level sensor (channel depth h) and channel velocity, not yet implemented.
-- **尖峰检测 30% / Spike detection 30%**：用流量秒级变化率近似，滑动基准自适应（对比当地流量变化率历史分布，超 P95 判高风险）。
-- **Spike 30%**: approximated by per-second flow change rate; sliding-baseline adaptive (vs local flow-change history, >P95 = high risk).
-
-### 滑动基准 / Sliding Baseline（气候自适应 / climate-adaptive）
-
-**中文**：为避免绝对值阈值（如「土壤湿度 60%」）在不同地区气候下不适用，模型维护一个 **24 小时滑动窗口**，用 P10/P95 分位数把当前值映射为「相对当地正常范围的偏离程度（0~1）」。数据积累 **2 小时**后自动启用；不足时回退到绝对值阈值。
-
-**English**: To avoid fixed thresholds (e.g. "soil moisture 60%") not fitting different climates, the model keeps a **24-hour sliding window** and maps the current value onto the P10/P95 percentile range, yielding a "relative deviation from local normal (0~1)". It activates after **2 hours** of data; before that it falls back to absolute thresholds.
-
-### 预警档位 / Warning Levels（一级最严重 / Level 1 = most severe）
-
-| 档位 / Level | 颜色 / Color | 泥石流 D 阈值 / Debris-flow D |
+| 版本 / Version | 算法 / Algorithm | 核心改动 / Key changes |
 | --- | --- | --- |
-| 🟢 正常 Normal | 绿 Green | D < 0.45 |
-| 🟡 三级 Level 3 | 黄 Yellow | 0.45 ≤ D < 0.55 |
-| 🟠 二级 Level 2 | 橙 Orange | 0.55 ≤ D < 0.75 |
-| 🔴 一级 Level 1 | 红 Red | D ≥ 0.75 |
+| beta1 | v1 | 原始算法 D<0.30 无门槛；水泵 D7 数字开关 |
+| beta2 | v1 | 加门槛（土壤<60%）+ 三级阈值 0.30→0.45 |
+| beta3 | v1 | 水泵 D9 PWM 调速 + 网页滑块 + 功率显示 |
+| beta4 | v1 | 尖峰滑动基准（自适应 P95）+ 整机功率（**Demo 1 最终版**） |
+| **beta5** | **v2** | **LCD 显示（风速/土湿/流速/预警 0-3）+ 算法 v2（标定对齐、山洪 F、滞回、土壤饱和）+ 温湿度本地** |
+
+> 🏁 **规划 / Plan**：Demo 1 完结于 beta4，beta5 起进入**算法迭代阶段**（数学预警模型 v2，归档 `algorithm-iterations/`）。超声波水位方案已砍（与流速重叠，不做曼宁 70%）。
+
+---
+
+## 📄 文档索引 / Docs
+
+| 位置 / Path | 说明 / Description |
+| --- | --- |
+| `algorithm-iterations/` | 数学预警模型技术文档（v1/v2，中英） |
+| `weather/` | 风速 + 温湿度模块（王立辉，网络服务 + Arduino 代码） |
+| `media/` | 演示图片与视频 |
+| `README.md` | 本文件（导航 + 版本历史） |
 
 ---
 
 ## ⚠️ 已知问题 / Known Issues
 
-1. **水泵供电 / Pump power**：水泵从 Arduino 取电，高速时电流大仍会拉垮 5V 断电复位（PWM 软启动已缓解启动冲击，但治标不治本）。**需改为独立供电**（单独 5V 电源，VCC 不再接 Arduino 5V，只共地）。
-   **Pump powered from Arduino** sags the 5V rail under high speed, resetting the board (PWM soft-start eases inrush but is not a cure). **Use an independent power supply** (separate 5V source; pump VCC no longer on Arduino 5V, only common ground).
-
-2. **山洪曼宁 / Flash-flood Manning**：缺超声波水位传感器，70% 分量未落地 —— **Demo 2 将补全**。
-   **Missing ultrasonic water-level sensor**; the 70% Manning component is not implemented — **to be completed in Demo 2**.
-
-3. **尖峰回退阈值 / Spike fallback threshold**：滑动基准数据不足（<2h）时回退到固定阈值 `2.0 L/min/s`，此参数待实测标定。
-   **Spike fallback threshold** `2.0 L/min/s` (used before the sliding baseline has 2h of data) still needs field calibration.
-
----
-
-## 📄 文档说明 / Documentation Note
-
-- 中文版与英文版代码逻辑完全一致，仅注释与界面文字不同。
-- The Chinese and English versions are logically identical; only comments and UI text differ.
-- 图片与视频放在 `media/`（素材不分语言）。
-- Photos & videos live in `media/` (language-neutral media).
+1. **流量计量程窄 / Flow sensor range**：YF-S401 仅 0.05~3 L/min，真实洪水流量超量程——v2 标定参数面向当前测试环境，换环境需重新标定。
+2. **风速依赖外部电脑 / Wind dependency**：8001 服务离线时风速路径失效（LCD 风速显示 0）；物理迁移到综合板为后续项。
+3. **硬阈值分级 / Hard thresholds**：0.45/0.55/0.75 阶梯跳变，无置信度/持续性判定（滞回已缓解闪断）。
